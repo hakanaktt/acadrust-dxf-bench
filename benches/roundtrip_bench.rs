@@ -46,7 +46,7 @@ fn bench_roundtrip(c: &mut Criterion) {
                         .expect("acadrust reader")
                         .read()
                         .expect("acadrust parse");
-                    let writer = acadrust::DxfWriter::new(doc);
+                    let writer = acadrust::DxfWriter::new(&doc);
                     writer.write_to_vec().expect("acadrust write")
                 })
             },
@@ -79,7 +79,7 @@ fn bench_roundtrip(c: &mut Criterion) {
                         .expect("acadrust reader")
                         .read()
                         .expect("acadrust parse");
-                    let writer = acadrust::DxfWriter::new(doc);
+                    let writer = acadrust::DxfWriter::new(&doc);
                     writer.write_to_vec().expect("acadrust write")
                 })
             },
@@ -124,7 +124,7 @@ fn bench_cross_library(c: &mut Criterion) {
                     .unwrap()
                     .read()
                     .unwrap();
-                let writer = acadrust::DxfWriter::new(doc);
+                let writer = acadrust::DxfWriter::new(&doc);
                 writer.write_to_vec().unwrap()
             })
         },

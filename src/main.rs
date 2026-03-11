@@ -85,7 +85,7 @@ fn time_write_lines(n: usize, iterations: usize) -> (f64, f64) {
     let doc = generators::build_acadrust_lines(n);
     let start = Instant::now();
     for _ in 0..iterations {
-        let writer = acadrust::DxfWriter::new(doc.clone());
+        let writer = acadrust::DxfWriter::new(&doc);
         writer.write_to_vec().expect("acadrust write");
     }
     let acad_total = start.elapsed().as_secs_f64() * 1000.0 / iterations as f64;
@@ -105,7 +105,7 @@ fn time_write_mixed(n: usize, iterations: usize) -> (f64, f64) {
     let doc = generators::build_acadrust_mixed(n);
     let start = Instant::now();
     for _ in 0..iterations {
-        let writer = acadrust::DxfWriter::new(doc.clone());
+        let writer = acadrust::DxfWriter::new(&doc);
         writer.write_to_vec().expect("acadrust write");
     }
     let acad_total = start.elapsed().as_secs_f64() * 1000.0 / iterations as f64;
@@ -197,7 +197,7 @@ fn main() {
             .unwrap()
             .read()
             .unwrap();
-        let writer = acadrust::DxfWriter::new(doc);
+        let writer = acadrust::DxfWriter::new(&doc);
         writer.write_to_vec().unwrap();
     }
     let acad_rt = start.elapsed().as_secs_f64() * 1000.0 / iters as f64;

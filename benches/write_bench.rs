@@ -36,7 +36,7 @@ fn bench_write_to_memory(c: &mut Criterion) {
             group.bench_function(BenchmarkId::new("acadrust", label), |b| {
                 let doc = generators::build_acadrust_lines(n);
                 b.iter(|| {
-                    let writer = acadrust::DxfWriter::new(doc.clone());
+                    let writer = acadrust::DxfWriter::new(&doc);
                     writer.write_to_vec().expect("acadrust write_to_vec")
                 })
             });
@@ -63,7 +63,7 @@ fn bench_write_to_memory(c: &mut Criterion) {
             group.bench_function(BenchmarkId::new("acadrust", label), |b| {
                 let doc = generators::build_acadrust_mixed(n);
                 b.iter(|| {
-                    let writer = acadrust::DxfWriter::new(doc.clone());
+                    let writer = acadrust::DxfWriter::new(&doc);
                     writer.write_to_vec().expect("acadrust write_to_vec")
                 })
             });
@@ -99,7 +99,7 @@ fn bench_write_to_file(c: &mut Criterion) {
         group.bench_function("acadrust/lines", |b| {
             let doc = generators::build_acadrust_lines(n);
             b.iter(|| {
-                let writer = acadrust::DxfWriter::new(doc.clone());
+                let writer = acadrust::DxfWriter::new(&doc);
                 writer
                     .write_to_file(acad_path.to_str().unwrap())
                     .expect("acadrust write_to_file");
@@ -123,7 +123,7 @@ fn bench_write_to_file(c: &mut Criterion) {
         group.bench_function("acadrust/mixed", |b| {
             let doc = generators::build_acadrust_mixed(n);
             b.iter(|| {
-                let writer = acadrust::DxfWriter::new(doc.clone());
+                let writer = acadrust::DxfWriter::new(&doc);
                 writer
                     .write_to_file(acad_path.to_str().unwrap())
                     .expect("acadrust write_to_file");
@@ -157,7 +157,7 @@ fn bench_write_scaling(c: &mut Criterion) {
         group.bench_function(BenchmarkId::new("acadrust", n), |b| {
             let doc = generators::build_acadrust_lines(n);
             b.iter(|| {
-                let writer = acadrust::DxfWriter::new(doc.clone());
+                let writer = acadrust::DxfWriter::new(&doc);
                 writer.write_to_vec().expect("acadrust write_to_vec")
             })
         });
