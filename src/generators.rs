@@ -17,6 +17,8 @@ pub enum Scale {
     Large,
     /// ~100 000 entities
     Huge,
+    /// ~1 000 000 entities
+    ExtraHuge,
 }
 
 impl Scale {
@@ -26,6 +28,7 @@ impl Scale {
             Scale::Medium => 1_000,
             Scale::Large => 10_000,
             Scale::Huge => 100_000,
+            Scale::ExtraHuge => 1_000_000,
         }
     }
 
@@ -35,6 +38,7 @@ impl Scale {
             Scale::Medium => "medium_1k",
             Scale::Large => "large_10k",
             Scale::Huge => "huge_100k",
+            Scale::ExtraHuge => "extrahuge_1m",
         }
     }
 }
@@ -43,6 +47,7 @@ impl Scale {
 pub fn generate_lines_only(scale: Scale) -> Vec<u8> {
     let n = scale.count();
     let mut drawing = dxf::Drawing::new();
+    drawing.header.version = dxf::enums::AcadVersion::R2000;
     let mut rng = rand::thread_rng();
 
     for _ in 0..n {
@@ -73,6 +78,7 @@ pub fn generate_lines_only(scale: Scale) -> Vec<u8> {
 pub fn generate_circles_only(scale: Scale) -> Vec<u8> {
     let n = scale.count();
     let mut drawing = dxf::Drawing::new();
+    drawing.header.version = dxf::enums::AcadVersion::R2000;
     let mut rng = rand::thread_rng();
 
     for _ in 0..n {
@@ -99,6 +105,7 @@ pub fn generate_circles_only(scale: Scale) -> Vec<u8> {
 pub fn generate_arcs_only(scale: Scale) -> Vec<u8> {
     let n = scale.count();
     let mut drawing = dxf::Drawing::new();
+    drawing.header.version = dxf::enums::AcadVersion::R2000;
     let mut rng = rand::thread_rng();
 
     for _ in 0..n {
@@ -127,6 +134,7 @@ pub fn generate_arcs_only(scale: Scale) -> Vec<u8> {
 pub fn generate_ellipses_only(scale: Scale) -> Vec<u8> {
     let n = scale.count();
     let mut drawing = dxf::Drawing::new();
+    drawing.header.version = dxf::enums::AcadVersion::R2000;
     let mut rng = rand::thread_rng();
 
     for _ in 0..n {
@@ -156,6 +164,7 @@ pub fn generate_ellipses_only(scale: Scale) -> Vec<u8> {
 pub fn generate_mixed(scale: Scale) -> Vec<u8> {
     let n = scale.count();
     let mut drawing = dxf::Drawing::new();
+    drawing.header.version = dxf::enums::AcadVersion::R2000;
     let mut rng = rand::thread_rng();
 
     for i in 0..n {
@@ -260,6 +269,7 @@ pub fn generate_polylines(scale: Scale) -> Vec<u8> {
     let polyline_count = (scale.count() / 50).max(1);
     let vertices_per = 50;
     let mut drawing = dxf::Drawing::new();
+    drawing.header.version = dxf::enums::AcadVersion::R2000;
     let mut rng = rand::thread_rng();
 
     for _ in 0..polyline_count {
@@ -285,6 +295,7 @@ pub fn generate_polylines(scale: Scale) -> Vec<u8> {
 pub fn generate_3d_entities(scale: Scale) -> Vec<u8> {
     let n = scale.count();
     let mut drawing = dxf::Drawing::new();
+    drawing.header.version = dxf::enums::AcadVersion::R2000;
     let mut rng = rand::thread_rng();
 
     for i in 0..n {
@@ -341,7 +352,7 @@ pub fn generate_3d_entities(scale: Scale) -> Vec<u8> {
     buf
 }
 
-/// Returns all (label, data) pairs for a given scale.
+/// Returns all (label, data) pairs for a given scale (ASCII DXF).
 pub fn all_variants(scale: Scale) -> Vec<(&'static str, Vec<u8>)> {
     vec![
         ("lines_only", generate_lines_only(scale)),
@@ -352,6 +363,47 @@ pub fn all_variants(scale: Scale) -> Vec<(&'static str, Vec<u8>)> {
         ("polylines", generate_polylines(scale)),
         ("3d_entities", generate_3d_entities(scale)),
     ]
+}
+
+// ---------------------------------------------------------------------------
+// Binary DXF generators
+// ---------------------------------------------------------------------------
+
+/// Generate a binary DXF from an existing dxf::Drawing.
+fn drawing_to_binary(drawing: &dxf::Drawing) -> Vec<u8> {
+    let mut buf = Vec::new();
+    drawing.save_binary(&mut buf).expect("failed to write binary DXF");
+    buf
+}
+
+/// Generate a binary DXF file with mixed entities at the given scale.
+pub fn generate_mixed_binary(scale: Scale) -> Vec<u8> {
+    let ascii = generate_mixed(scale);
+    let drawing = dxf::Drawing::load(&mut std::io::Cursor::new(&ascii)).unwrap();
+    drawing_to_binary(&drawing)
+}
+
+/// Generate a binary DXF file with lines at the given scale.
+pub fn generate_lines_binary(scale: Scale) -> Vec<u8> {
+    let ascii = generate_lines_only(scale);
+    let drawing = dxf::Drawing::load(&mut std::io::Cursor::new(&ascii)).unwrap();
+    drawing_to_binary(&drawing)
+}
+
+// ---------------------------------------------------------------------------
+// DWG generators (acadrust only – dxf-rs has no DWG support)
+// ---------------------------------------------------------------------------
+
+/// Generate a DWG file with mixed entities at the given scale.
+pub fn generate_mixed_dwg(scale: Scale) -> Vec<u8> {
+    let doc = build_acadrust_mixed(scale.count());
+    acadrust::DwgWriter::write_to_vec(&doc).expect("failed to write DWG")
+}
+
+/// Generate a DWG file with lines at the given scale.
+pub fn generate_lines_dwg(scale: Scale) -> Vec<u8> {
+    let doc = build_acadrust_lines(scale.count());
+    acadrust::DwgWriter::write_to_vec(&doc).expect("failed to write DWG")
 }
 
 /// Builds an `acadrust::CadDocument` with lines for writing benchmarks.
@@ -436,6 +488,7 @@ pub fn build_acadrust_mixed(n: usize) -> acadrust::CadDocument {
 /// Builds a `dxf::Drawing` with lines for writing benchmarks.
 pub fn build_dxf_lines(n: usize) -> dxf::Drawing {
     let mut drawing = dxf::Drawing::new();
+    drawing.header.version = dxf::enums::AcadVersion::R2000;
     let mut rng = rand::thread_rng();
     for _ in 0..n {
         let line = dxf::entities::Line {
@@ -461,6 +514,7 @@ pub fn build_dxf_lines(n: usize) -> dxf::Drawing {
 /// Builds a `dxf::Drawing` with mixed entities for writing benchmarks.
 pub fn build_dxf_mixed(n: usize) -> dxf::Drawing {
     let mut drawing = dxf::Drawing::new();
+    drawing.header.version = dxf::enums::AcadVersion::R2000;
     let mut rng = rand::thread_rng();
     for i in 0..n {
         let entity_type = match i % 4 {
