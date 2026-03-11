@@ -6,7 +6,7 @@ description = "Heavy-duty DXF parsing/writing performance benchmark suite compar
 
 [dependencies]
 dxf = "0.6"
-acadrust = "0.2.10"
+acadrust = { path = "../acadrust" }
 criterion = { version = "0.5", features = ["html_reports"] }
 rand = "0.8"
 comfy-table = "7"
