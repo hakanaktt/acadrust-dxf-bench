@@ -1,28 +1,27 @@
 # acadrust-dxf-bench
 
-Heavy-duty DXF parsing/writing performance benchmark suite comparing **[dxf-rs](https://crates.io/crates/dxf)** (v0.6) and **[acadrust](https://crates.io/crates/acadrust)** (v0.2).
+Benchmark suite comparing four DXF/DWG libraries across parsing, writing, roundtrip, binary DXF, and DWG operations.
+
+| Library | Language | DXF (ASCII) | DXF (Binary) | DWG |
+|---|---|---|---|---|
+| **[dxf-rs](https://crates.io/crates/dxf)** v0.6 | Rust | Read/Write | Read/Write | — |
+| **[acadrust](https://crates.io/crates/acadrust)** v0.3.0 | Rust | Read/Write | Read/Write | Read/Write |
+| **[ACadSharp](https://github.com/DomCR/ACadSharp)** v3.4.9 | C# (.NET) | Read/Write | Read/Write | Read/Write |
+| **[ezdxf](https://github.com/mozman/ezdxf)** v1.4.3 | Python | Read/Write | Read/Write | — |
 
 ## What's Measured
 
-### Parse Benchmarks (`benches/parse_bench.rs`)
-| Scenario | Description |
+| Category | Scenarios |
 |---|---|
-| **By entity type** | Lines, circles, arcs, ellipses, mixed, polylines, 3D entities — at 4 scale levels |
-| **File I/O** | Parse from disk (10k mixed entities) |
-| **Scaling** | Lines only at 100 → 50,000 entities to measure scaling behavior |
-
-### Write Benchmarks (`benches/write_bench.rs`)
-| Scenario | Description |
-|---|---|
-| **To memory** | Lines-only and mixed entities at 4 scale levels |
-| **To file** | Write to disk (10k lines & mixed) |
-| **Scaling** | Lines only at 100 → 50,000 entities |
-
-### Roundtrip Benchmarks (`benches/roundtrip_bench.rs`)
-| Scenario | Description |
-|---|---|
-| **Same-library** | Parse → write within each library |
-| **Cross-library** | Full roundtrip baselines at 10k mixed |
+| **DXF Parse** | 7 entity-type variants (lines, circles, arcs, ellipses, mixed, polylines, 3D) |
+| **DXF Write** | Lines-only and mixed entities |
+| **DXF Roundtrip** | Read → write (mixed) |
+| **Binary DXF Parse** | Binary mixed and binary lines |
+| **Binary DXF Write** | Binary lines and binary mixed |
+| **Binary DXF Roundtrip** | Binary mixed roundtrip |
+| **DWG Parse** | DWG mixed and DWG lines |
+| **DWG Write** | DWG lines and DWG mixed (acadrust + ACadSharp only) |
+| **DWG Roundtrip** | DWG mixed roundtrip (acadrust + ACadSharp only) |
 
 ### Scale Presets
 
@@ -35,75 +34,46 @@ Heavy-duty DXF parsing/writing performance benchmark suite comparing **[dxf-rs](
 
 ## Quick Start
 
-### Quick comparison table (CLI runner)
-
 ```bash
+# Quick comparison table (CLI runner)
 cargo run --release -- --scale large --iterations 10
-```
 
-### Full Criterion benchmarks
-
-```bash
-# Run all benchmarks
+# Full Criterion benchmarks
 cargo bench
 
-# Run only parse benchmarks
+# Individual benchmark suites
 cargo bench --bench parse_bench
-
-# Run only write benchmarks
 cargo bench --bench write_bench
-
-# Run only roundtrip benchmarks
 cargo bench --bench roundtrip_bench
-
-# Filter specific benchmark
-cargo bench --bench parse_bench -- "parse/large_10k"
 ```
 
-### HTML Reports
+## Architecture
 
-After running `cargo bench`, open `target/criterion/report/index.html` for detailed
-statistical reports with violin plots and regression analysis.
+The Rust binary (main.rs) orchestrates all benchmarks:
+
+- **dxf-rs** and **acadrust** are timed directly in-process via Rust APIs
+- **ACadSharp** runs as a .NET subprocess (`acadsharp-bench/`) outputting JSON
+- **ezdxf** runs as a Python subprocess (`ezdxf-bench/`) outputting JSON
+
+All libraries operate on the same generated test files under `bench_output/<scale>/`.
 
 ## Project Structure
 
 ```
-├── Cargo.toml
 ├── src/
+│   ├── main.rs           # CLI benchmark harness (orchestrates all 4 libraries)
 │   ├── lib.rs            # Crate root
-│   ├── main.rs           # CLI quick-comparison runner
-│   └── generators.rs     # DXF test-data generators (all scales & entity types)
-├── benches/
-│   ├── parse_bench.rs    # Criterion parse benchmarks
-│   ├── write_bench.rs    # Criterion write benchmarks
-│   └── roundtrip_bench.rs# Criterion roundtrip benchmarks
-└── README.md
-```
-
-## Example Output (CLI)
-
-```
-=== DXF Benchmark: dxf-rs vs acadrust  (scale=large, entities=10000, iterations=10) ===
-
-Test files generated:
-  lines_only              1234567 bytes
-  circles_only             987654 bytes
-  ...
-
-┌────────────────┬─────────────┬────────────────┬──────────────────┬──────────┐
-│ PARSE          │ dxf-rs (ms) │ acadrust (ms)  │ ratio (dxf/acad) │ faster   │
-├────────────────┼─────────────┼────────────────┼──────────────────┼──────────┤
-│ lines_only     │ 45.23       │ 32.10          │ 1.41x            │ acadrust │
-│ circles_only   │ 42.11       │ 30.88          │ 1.36x            │ acadrust │
-│ ...            │ ...         │ ...            │ ...              │ ...      │
-└────────────────┴─────────────┴────────────────┴──────────────────┴──────────┘
+│   └── generators.rs     # DXF/DWG/DXB test-data generators
+├── benches/              # Criterion benchmarks (parse, write, roundtrip)
+├── acadsharp-bench/      # C# (.NET) ACadSharp benchmark runner
+├── ezdxf-bench/          # Python ezdxf benchmark runner
+├── reports/              # Generated benchmark reports (Markdown)
+└── bench_output/         # Generated test files and results
 ```
 
 ## Requirements
 
 - Rust 1.70+
-- ~500 MB free RAM for `huge` scale benchmarks
-
-## License
-
-MIT
+- .NET 8.0 SDK (for ACadSharp benchmarks)
+- Python 3.10+ with `ezdxf` installed (for ezdxf benchmarks)
+- ~500 MB free RAM for `huge` scale
