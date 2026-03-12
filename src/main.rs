@@ -9,9 +9,12 @@
 use acadrust_dxf_bench::generators::{self, Scale};
 use clap::Parser;
 use comfy_table::{Cell, ContentArrangement, Table};
+use serde::Deserialize;
+use std::collections::HashMap;
 use std::fs;
 use std::io::{BufReader, BufWriter};
 use std::path::{Path, PathBuf};
+use std::process::Command;
 use std::time::Instant;
 
 #[derive(Parser)]
@@ -44,16 +47,86 @@ struct TimingResult {
     label: String,
     dxf_ms: f64,
     acadrust_ms: f64,
+    acadsharp_ms: f64,
 }
 
-impl TimingResult {
-    fn ratio(&self) -> f64 {
-        if self.acadrust_ms > 0.0 {
-            self.dxf_ms / self.acadrust_ms
-        } else {
-            f64::NAN
+#[derive(Debug, Deserialize)]
+struct AcadSharpTimingEntry {
+    #[serde(rename = "Label")]
+    label: String,
+    #[serde(rename = "Ms")]
+    ms: f64,
+}
+
+type AcadSharpResults = HashMap<String, Vec<AcadSharpTimingEntry>>;
+
+/// Run the ACadSharp (.NET) benchmark and collect results.
+fn run_acadsharp_bench(out_dir: &Path, iterations: usize) -> Option<AcadSharpResults> {
+    let bench_dir = PathBuf::from("acadsharp-bench");
+    let abs_out = std::env::current_dir()
+        .ok()
+        .map(|cwd| cwd.join(out_dir))
+        .unwrap_or_else(|| out_dir.to_path_buf());
+
+    println!("Running ACadSharp (.NET) benchmarks...");
+    let output = Command::new("dotnet")
+        .arg("run")
+        .arg("-c")
+        .arg("Release")
+        .arg("--project")
+        .arg(&bench_dir)
+        .arg("--")
+        .arg("--dir")
+        .arg(&abs_out)
+        .arg("--iterations")
+        .arg(iterations.to_string())
+        .output();
+
+    match output {
+        Ok(o) => {
+            let stderr = String::from_utf8_lossy(&o.stderr);
+            if !stderr.is_empty() {
+                eprintln!("  ACadSharp stderr: {}", stderr.trim());
+            }
+            if !o.status.success() {
+                eprintln!("  ACadSharp benchmark exited with {}", o.status);
+                return None;
+            }
+            let stdout = String::from_utf8_lossy(&o.stdout);
+            // Find the JSON line (last non-empty line)
+            let json_line = stdout.lines().filter(|l| l.starts_with('{')).last();
+            match json_line {
+                Some(line) => match serde_json::from_str::<AcadSharpResults>(line) {
+                    Ok(r) => {
+                        println!("  ACadSharp benchmarks completed successfully.");
+                        Some(r)
+                    }
+                    Err(e) => {
+                        eprintln!("  Failed to parse ACadSharp JSON: {}", e);
+                        None
+                    }
+                },
+                None => {
+                    eprintln!("  No JSON output from ACadSharp benchmark.");
+                    None
+                }
+            }
+        }
+        Err(e) => {
+            eprintln!("  Failed to run ACadSharp benchmark (is dotnet installed?): {}", e);
+            None
         }
     }
+}
+
+/// Look up ACadSharp timing for a given label in a category.
+fn lookup_acadsharp(results: &Option<AcadSharpResults>, category: &str, label: &str) -> f64 {
+    results
+        .as_ref()
+        .and_then(|r| r.get(category))
+        .and_then(|entries| entries.iter().find(|e| e.label == label))
+        .map(|e| e.ms)
+        .unwrap_or(f64::NAN)
 }
 
 /// Parse a DXF file from disk with both libraries.
@@ -161,7 +234,7 @@ fn main() {
     fs::create_dir_all(&rt_dir).expect("create roundtrip dir");
 
     println!(
-        "\n=== DXF Benchmark: dxf-rs vs acadrust  (scale={}, entities={}, iterations={}) ===",
+        "\n=== DXF Benchmark: dxf-rs vs acadrust vs ACadSharp  (scale={}, entities={}, iterations={}) ===",
         cli.scale, n, iters
     );
     println!("Output directory: {}\n", out_dir.display());
@@ -182,6 +255,56 @@ fn main() {
     println!();
 
     // -----------------------------------------------------------------------
+    // Generate binary DXF test files to disk
+    // -----------------------------------------------------------------------
+    println!("Generating binary DXF test files to disk...");
+    let binary_mixed_data = generators::generate_mixed_binary(scale);
+    let binary_lines_data = generators::generate_lines_binary(scale);
+    let binary_mixed_path = out_dir.join("binary_mixed.dxb");
+    let binary_lines_path = out_dir.join("binary_lines.dxb");
+    fs::write(&binary_mixed_path, &binary_mixed_data).expect("write binary mixed");
+    fs::write(&binary_lines_path, &binary_lines_data).expect("write binary lines");
+    println!(
+        "  binary_mixed       {:>10} bytes  -> {}",
+        binary_mixed_data.len(),
+        binary_mixed_path.display()
+    );
+    println!(
+        "  binary_lines       {:>10} bytes  -> {}",
+        binary_lines_data.len(),
+        binary_lines_path.display()
+    );
+    println!();
+
+    // -----------------------------------------------------------------------
+    // Generate DWG test files to disk
+    // -----------------------------------------------------------------------
+    println!("Generating DWG test files to disk...");
+    let dwg_mixed_data = generators::generate_mixed_dwg(scale);
+    let dwg_lines_data = generators::generate_lines_dwg(scale);
+    let dwg_mixed_path = out_dir.join("mixed.dwg");
+    let dwg_lines_path = out_dir.join("lines.dwg");
+    fs::write(&dwg_mixed_path, &dwg_mixed_data).expect("write DWG mixed");
+    fs::write(&dwg_lines_path, &dwg_lines_data).expect("write DWG lines");
+    println!(
+        "  dwg_mixed          {:>10} bytes  -> {}",
+        dwg_mixed_data.len(),
+        dwg_mixed_path.display()
+    );
+    println!(
+        "  dwg_lines          {:>10} bytes  -> {}",
+        dwg_lines_data.len(),
+        dwg_lines_path.display()
+    );
+    println!();
+
+    // -----------------------------------------------------------------------
+    // Run ACadSharp (.NET) benchmarks on the same files
+    // -----------------------------------------------------------------------
+    let acadsharp = run_acadsharp_bench(&out_dir, iters);
+    println!();
+
+    // -----------------------------------------------------------------------
     // PARSE benchmarks (from disk)
     // -----------------------------------------------------------------------
     let mut parse_results = Vec::new();
@@ -191,6 +314,7 @@ fn main() {
             label: name.clone(),
             dxf_ms,
             acadrust_ms: acad_ms,
+            acadsharp_ms: lookup_acadsharp(&acadsharp, "parse", name),
         });
     }
     print_table("PARSE (from disk)", &parse_results);
@@ -207,6 +331,7 @@ fn main() {
         label: "lines_only".into(),
         dxf_ms,
         acadrust_ms: acad_ms,
+        acadsharp_ms: lookup_acadsharp(&acadsharp, "write", "lines_only"),
     });
 
     let drawing = generators::build_dxf_mixed(n);
@@ -216,6 +341,7 @@ fn main() {
         label: "mixed".into(),
         dxf_ms,
         acadrust_ms: acad_ms,
+        acadsharp_ms: lookup_acadsharp(&acadsharp, "write", "mixed"),
     });
 
     print_table("WRITE (to disk)", &write_results);
@@ -260,9 +386,10 @@ fn main() {
         label: "mixed_roundtrip".into(),
         dxf_ms: dxf_rt,
         acadrust_ms: acad_rt,
+        acadsharp_ms: lookup_acadsharp(&acadsharp, "roundtrip", "mixed_roundtrip"),
     });
 
-    print_table("ROUNDTRIP (disk → disk)", &rt_results);
+    print_table("ROUNDTRIP (disk \u{2192} disk)", &rt_results);
     println!("  Roundtrip files kept at:");
     println!("    {}", dxf_rt_path.display());
     println!("    {}", acad_rt_path.display());
@@ -271,24 +398,6 @@ fn main() {
     // -----------------------------------------------------------------------
     // BINARY DXF benchmarks
     // -----------------------------------------------------------------------
-    println!("Generating binary DXF test files to disk...");
-    let binary_mixed_data = generators::generate_mixed_binary(scale);
-    let binary_lines_data = generators::generate_lines_binary(scale);
-    let binary_mixed_path = out_dir.join("binary_mixed.dxb");
-    let binary_lines_path = out_dir.join("binary_lines.dxb");
-    fs::write(&binary_mixed_path, &binary_mixed_data).expect("write binary mixed");
-    fs::write(&binary_lines_path, &binary_lines_data).expect("write binary lines");
-    println!(
-        "  binary_mixed       {:>10} bytes  -> {}",
-        binary_mixed_data.len(),
-        binary_mixed_path.display()
-    );
-    println!(
-        "  binary_lines       {:>10} bytes  -> {}",
-        binary_lines_data.len(),
-        binary_lines_path.display()
-    );
-    println!();
 
     // Binary parse (from disk)
     let mut binary_parse_results = Vec::new();
@@ -298,12 +407,14 @@ fn main() {
             label: "binary_mixed".into(),
             dxf_ms,
             acadrust_ms: acad_ms,
+            acadsharp_ms: lookup_acadsharp(&acadsharp, "binary_parse", "binary_mixed"),
         });
         let (dxf_ms, acad_ms) = time_parse_file(&binary_lines_path, iters);
         binary_parse_results.push(TimingResult {
             label: "binary_lines".into(),
             dxf_ms,
             acadrust_ms: acad_ms,
+            acadsharp_ms: lookup_acadsharp(&acadsharp, "binary_parse", "binary_lines"),
         });
     }
     print_table("BINARY PARSE (from disk)", &binary_parse_results);
@@ -319,6 +430,7 @@ fn main() {
             label: "binary_lines".into(),
             dxf_ms,
             acadrust_ms: acad_ms,
+            acadsharp_ms: f64::NAN,
         });
 
         let drawing = generators::build_dxf_mixed(n);
@@ -329,6 +441,7 @@ fn main() {
             label: "binary_mixed".into(),
             dxf_ms,
             acadrust_ms: acad_ms,
+            acadsharp_ms: f64::NAN,
         });
     }
     print_table("BINARY WRITE (to disk)", &binary_write_results);
@@ -368,6 +481,7 @@ fn main() {
             label: "binary_mixed_roundtrip".into(),
             dxf_ms: dxf_rt,
             acadrust_ms: acad_rt,
+            acadsharp_ms: lookup_acadsharp(&acadsharp, "binary_roundtrip", "binary_mixed_roundtrip"),
         });
 
         println!("  Binary roundtrip files kept at:");
@@ -378,28 +492,10 @@ fn main() {
     print_table("BINARY ROUNDTRIP (disk → disk)", &binary_rt_results);
 
     // -----------------------------------------------------------------------
-    // DWG benchmarks (acadrust only – dxf-rs has no DWG support)
+    // DWG benchmarks – dxf-rs has no DWG support
     // -----------------------------------------------------------------------
-    println!("Generating DWG test files to disk...");
-    let dwg_mixed_data = generators::generate_mixed_dwg(scale);
-    let dwg_lines_data = generators::generate_lines_dwg(scale);
-    let dwg_mixed_path = out_dir.join("mixed.dwg");
-    let dwg_lines_path = out_dir.join("lines.dwg");
-    fs::write(&dwg_mixed_path, &dwg_mixed_data).expect("write DWG mixed");
-    fs::write(&dwg_lines_path, &dwg_lines_data).expect("write DWG lines");
-    println!(
-        "  dwg_mixed          {:>10} bytes  -> {}",
-        dwg_mixed_data.len(),
-        dwg_mixed_path.display()
-    );
-    println!(
-        "  dwg_lines          {:>10} bytes  -> {}",
-        dwg_lines_data.len(),
-        dwg_lines_path.display()
-    );
-    println!();
 
-    // DWG parse (from disk, acadrust only)
+    // DWG parse (from disk)
     let mut dwg_parse_results = Vec::new();
     for (label, path) in &[("dwg_mixed", &dwg_mixed_path), ("dwg_lines", &dwg_lines_path)] {
         let start = Instant::now();
@@ -414,9 +510,10 @@ fn main() {
             label: label.to_string(),
             dxf_ms: f64::NAN,
             acadrust_ms: acad_ms,
+            acadsharp_ms: lookup_acadsharp(&acadsharp, "dwg_parse", label),
         });
     }
-    print_table("DWG PARSE (from disk, acadrust only)", &dwg_parse_results);
+    print_table("DWG PARSE (from disk)", &dwg_parse_results);
 
     // DWG write (to disk, acadrust only)
     let mut dwg_write_results = Vec::new();
@@ -434,6 +531,7 @@ fn main() {
             label: "dwg_lines".into(),
             dxf_ms: f64::NAN,
             acadrust_ms: acad_ms,
+            acadsharp_ms: lookup_acadsharp(&acadsharp, "dwg_write", "dwg_lines"),
         });
 
         let doc = generators::build_acadrust_mixed(n);
@@ -449,9 +547,10 @@ fn main() {
             label: "dwg_mixed".into(),
             dxf_ms: f64::NAN,
             acadrust_ms: acad_ms,
+            acadsharp_ms: lookup_acadsharp(&acadsharp, "dwg_write", "dwg_mixed"),
         });
     }
-    print_table("DWG WRITE (to disk, acadrust only)", &dwg_write_results);
+    print_table("DWG WRITE (to disk)", &dwg_write_results);
 
     // DWG roundtrip (disk → disk, files kept, acadrust only)
     let mut dwg_rt_results = Vec::new();
@@ -472,13 +571,14 @@ fn main() {
             label: "dwg_mixed_roundtrip".into(),
             dxf_ms: f64::NAN,
             acadrust_ms: acad_ms,
+            acadsharp_ms: lookup_acadsharp(&acadsharp, "dwg_roundtrip", "dwg_mixed_roundtrip"),
         });
 
         println!("  DWG roundtrip file kept at:");
         println!("    {}", dwg_rt_path.display());
         println!();
     }
-    print_table("DWG ROUNDTRIP (disk → disk, acadrust only)", &dwg_rt_results);
+    print_table("DWG ROUNDTRIP (disk \u{2192} disk)", &dwg_rt_results);
 
     // -----------------------------------------------------------------------
     // PARSE-DETAIL comparison – what does each library extract from the file?
@@ -510,30 +610,41 @@ fn print_table(title: &str, results: &[TimingResult]) {
         Cell::new(title),
         Cell::new("dxf-rs (ms)"),
         Cell::new("acadrust (ms)"),
-        Cell::new("ratio (dxf/acad)"),
-        Cell::new("faster"),
+        Cell::new("ACadSharp (ms)"),
+        Cell::new("fastest"),
     ]);
 
     for r in results {
-        let ratio = r.ratio();
-        let (dxf_str, ratio_str, faster) = if r.dxf_ms.is_nan() {
-            ("n/a".to_string(), "n/a".to_string(), "acadrust only")
-        } else {
-            let faster = if ratio > 1.0 {
-                "acadrust"
-            } else if ratio < 1.0 {
-                "dxf-rs"
+        let fmt = |v: f64| {
+            if v.is_nan() {
+                "n/a".to_string()
             } else {
-                "tie"
-            };
-            (format!("{:.2}", r.dxf_ms), format!("{:.2}x", ratio), faster)
+                format!("{:.2}", v)
+            }
         };
+
+        // Determine the fastest library
+        let candidates: Vec<(&str, f64)> = [
+            ("dxf-rs", r.dxf_ms),
+            ("acadrust", r.acadrust_ms),
+            ("ACadSharp", r.acadsharp_ms),
+        ]
+        .into_iter()
+        .filter(|(_, v)| !v.is_nan() && *v > 0.0)
+        .collect();
+
+        let fastest = candidates
+            .iter()
+            .min_by(|a, b| a.1.partial_cmp(&b.1).unwrap_or(std::cmp::Ordering::Equal))
+            .map(|(name, _)| *name)
+            .unwrap_or("n/a");
+
         table.add_row(vec![
             Cell::new(&r.label),
-            Cell::new(dxf_str),
-            Cell::new(format!("{:.2}", r.acadrust_ms)),
-            Cell::new(ratio_str),
-            Cell::new(faster),
+            Cell::new(fmt(r.dxf_ms)),
+            Cell::new(fmt(r.acadrust_ms)),
+            Cell::new(fmt(r.acadsharp_ms)),
+            Cell::new(fastest),
         ]);
     }
 

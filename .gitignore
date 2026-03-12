@@ -1,3 +1,7 @@
 /target
 /acadrust
 /bench_output
+
+# .NET artifacts
+acadsharp-bench/bin/
+acadsharp-bench/obj/
