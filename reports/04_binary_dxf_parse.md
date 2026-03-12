@@ -1,61 +1,41 @@
-# Binary DXF (DXB) Parse Performance Report
+# Binary DXF Parse Performance Report
 
-**Date:** March 12, 2026  
-**Libraries:** dxf-rs v0.6, acadrust v0.3.0, ACadSharp v3.4.9  
-**Platform:** Windows, Release mode (`opt-level=3`, `lto=thin`)  
-**Test data:** Binary DXF files generated from mixed and lines-only workloads
+**Date:** March 13, 2026  
+**Libraries:** acadrust v0.3.0, dxf-rs v0.6, ACadSharp v3.4.9, ezdxf v1.4.3  
+**Platform:** Windows, Release mode (`opt-level=3`, `lto=thin`)
 
 ---
 
 ## Summary
 
-For binary DXF parsing, **dxf-rs and acadrust are closely matched**, trading wins depending on scale and workload. **ACadSharp** is significantly slower — 4–5× behind the Rust libraries.
-
-| Scale | binary_mixed Winner | binary_lines Winner |
-|---|---|---|
-| Small (100) | dxf-rs (1.03×) | acadrust (1.09×) |
-| Medium (1K) | dxf-rs (1.06×) | dxf-rs (1.35×) |
-| Large (10K) | acadrust (1.05×) | dxf-rs (1.12×) |
-| Huge (100K) | dxf-rs (1.01×) | acadrust (1.21×) |
+**acadrust and dxf-rs are neck and neck** for binary DXF parsing. ACadSharp is 5–6× slower, and ezdxf is 10–27× slower.
 
 ---
 
-## Detailed Results
+## Results (ms, lower is better)
 
-All times in **milliseconds** (lower is better).
+### binary_mixed
 
-### Small (100 entities)
+| Scale | Entities | dxf-rs | acadrust | ACadSharp | ezdxf | Fastest |
+|---|---|---|---|---|---|---|
+| Small | 100 | 0.64 | **0.58** | 3.61 | 6.12 | acadrust |
+| Medium | 1,000 | 3.74 | **2.85** | 22.10 | 33.56 | acadrust |
+| Large | 10,000 | 23.71 | **19.25** | 93.26 | 399.30 | acadrust |
+| Huge | 100,000 | 189.14 | **184.06** | 1006.61 | 5010.33 | acadrust |
 
-| Workload | dxf-rs (ms) | acadrust (ms) | ACadSharp (ms) | Fastest |
-|---|---|---|---|---|
-| binary_mixed | **0.38** | 0.39 | 3.50 | dxf-rs |
-| binary_lines | 0.38 | **0.35** | 2.79 | acadrust |
+### binary_lines
 
-### Medium (1,000 entities)
-
-| Workload | dxf-rs (ms) | acadrust (ms) | ACadSharp (ms) | Fastest |
-|---|---|---|---|---|
-| binary_mixed | **2.08** | 2.21 | 16.44 | dxf-rs |
-| binary_lines | **1.75** | 2.36 | 18.85 | dxf-rs |
-
-### Large (10,000 entities)
-
-| Workload | dxf-rs (ms) | acadrust (ms) | ACadSharp (ms) | Fastest |
-|---|---|---|---|---|
-| binary_mixed | 25.37 | **24.23** | 123.51 | acadrust |
-| binary_lines | **20.45** | 18.22 | 99.33 | acadrust |
-
-### Huge (100,000 entities)
-
-| Workload | dxf-rs (ms) | acadrust (ms) | ACadSharp (ms) | Fastest |
-|---|---|---|---|---|
-| binary_mixed | **214.20** | 215.65 | 1058.37 | dxf-rs |
-| binary_lines | 231.19 | **191.28** | 789.54 | acadrust |
+| Scale | Entities | dxf-rs | acadrust | ACadSharp | ezdxf | Fastest |
+|---|---|---|---|---|---|---|
+| Small | 100 | **0.35** | 0.39 | 2.63 | 6.07 | dxf-rs |
+| Medium | 1,000 | 2.36 | **2.18** | 17.78 | 29.92 | acadrust |
+| Large | 10,000 | 22.75 | **18.36** | 95.65 | 360.67 | acadrust |
+| Huge | 100,000 | 196.67 | **182.74** | 928.70 | 4871.84 | acadrust |
 
 ---
 
 ## Observations
 
-- Binary DXF parsing is a much tighter race between dxf-rs and acadrust than ASCII DXF parsing. Neither library has a clear advantage.
-- **ACadSharp** parses binary DXF 4–8× slower than the Rust libraries, likely because `DxfReader` in ACadSharp uses the same ASCII-oriented code path for binary format detection.
-- Binary DXF files are ~55–60% the size of their ASCII equivalents, yet parse times don't shrink proportionally — binary format still requires header/entity structure parsing.
+- The two Rust libraries are within 3–8% of each other for binary DXF parsing at all scales.
+- ACadSharp is ~5× slower than the Rust libraries at huge scale.
+- ezdxf is ~27× slower than acadrust at huge scale — while ezdxf can read binary DXF, it processes them through the same Python pipeline.

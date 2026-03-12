@@ -120,15 +120,43 @@ foreach (var (label, fileName) in dxbFiles)
 results["binary_parse"] = binaryParseResults;
 
 // -----------------------------------------------------------------------
-// BINARY DXF ROUNDTRIP benchmarks (read DXB, write DXF back)
+// BINARY DXF WRITE benchmarks (DXB to disk)
+// -----------------------------------------------------------------------
+var binaryWriteResults = new List<TimingEntry>();
+
+if (File.Exists(linesSrc))
+{
+    var doc = ReadDxf(linesSrc);
+    if (doc != null)
+    {
+        var outPath = Path.Combine(dir, "write_binary_lines_acadsharp.dxb");
+        var ms = TimeWriteBinaryDxf(doc, outPath, iterations);
+        binaryWriteResults.Add(new TimingEntry("binary_lines", ms));
+    }
+}
+
+if (File.Exists(mixedSrc))
+{
+    var doc = ReadDxf(mixedSrc);
+    if (doc != null)
+    {
+        var outPath = Path.Combine(dir, "write_binary_mixed_acadsharp.dxb");
+        var ms = TimeWriteBinaryDxf(doc, outPath, iterations);
+        binaryWriteResults.Add(new TimingEntry("binary_mixed", ms));
+    }
+}
+results["binary_write"] = binaryWriteResults;
+
+// -----------------------------------------------------------------------
+// BINARY DXF ROUNDTRIP benchmarks (read DXB, write DXB back)
 // -----------------------------------------------------------------------
 var binaryRtResults = new List<TimingEntry>();
 
 var binaryMixedSrc = Path.Combine(dir, "binary_mixed.dxb");
 if (File.Exists(binaryMixedSrc))
 {
-    var rtPath = Path.Combine(rtDir, "rt_binary_mixed_acadsharp_cs.dxf");
-    var ms = TimeRoundtripDxf(binaryMixedSrc, rtPath, iterations);
+    var rtPath = Path.Combine(rtDir, "rt_binary_mixed_acadsharp_cs.dxb");
+    var ms = TimeRoundtripBinaryDxf(binaryMixedSrc, rtPath, iterations);
     binaryRtResults.Add(new TimingEntry("binary_mixed_roundtrip", ms));
 }
 results["binary_roundtrip"] = binaryRtResults;
@@ -324,6 +352,30 @@ static double TimeWriteDwg(CadDocument doc, string outPath, int iterations)
     return sw.Elapsed.TotalMilliseconds / iterations;
 }
 
+static double TimeWriteBinaryDxf(CadDocument doc, string outPath, int iterations)
+{
+    // Warmup
+    try
+    {
+        using var w = new DxfWriter(outPath, doc, true);
+        w.Write();
+    }
+    catch { return double.NaN; }
+
+    var sw = Stopwatch.StartNew();
+    for (int i = 0; i < iterations; i++)
+    {
+        try
+        {
+            using var writer = new DxfWriter(outPath, doc, true);
+            writer.Write();
+        }
+        catch { return double.NaN; }
+    }
+    sw.Stop();
+    return sw.Elapsed.TotalMilliseconds / iterations;
+}
+
 static double TimeRoundtripDxf(string inputPath, string outputPath, int iterations)
 {
     // Warmup
@@ -344,6 +396,34 @@ static double TimeRoundtripDxf(string inputPath, string outputPath, int iteratio
             using var reader = new DxfReader(inputPath);
             var doc = reader.Read();
             using var writer = new DxfWriter(outputPath, doc, false);
+            writer.Write();
+        }
+        catch { return double.NaN; }
+    }
+    sw.Stop();
+    return sw.Elapsed.TotalMilliseconds / iterations;
+}
+
+static double TimeRoundtripBinaryDxf(string inputPath, string outputPath, int iterations)
+{
+    // Warmup
+    try
+    {
+        using var r = new DxfReader(inputPath);
+        var doc = r.Read();
+        using var w = new DxfWriter(outputPath, doc, true);
+        w.Write();
+    }
+    catch { return double.NaN; }
+
+    var sw = Stopwatch.StartNew();
+    for (int i = 0; i < iterations; i++)
+    {
+        try
+        {
+            using var reader = new DxfReader(inputPath);
+            var doc = reader.Read();
+            using var writer = new DxfWriter(outputPath, doc, true);
             writer.Write();
         }
         catch { return double.NaN; }

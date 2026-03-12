@@ -485,7 +485,7 @@ fn main() {
             dxf_ms,
             acadrust_ms: acad_ms,
             acadsharp_ms: lookup_acadsharp(&acadsharp, "binary_parse", "binary_mixed"),
-            ezdxf_ms: f64::NAN,
+            ezdxf_ms: lookup_ezdxf(&ezdxf, "binary_parse", "binary_mixed"),
         });
         let (dxf_ms, acad_ms) = time_parse_file(&binary_lines_path, iters);
         binary_parse_results.push(TimingResult {
@@ -493,7 +493,7 @@ fn main() {
             dxf_ms,
             acadrust_ms: acad_ms,
             acadsharp_ms: lookup_acadsharp(&acadsharp, "binary_parse", "binary_lines"),
-            ezdxf_ms: f64::NAN,
+            ezdxf_ms: lookup_ezdxf(&ezdxf, "binary_parse", "binary_lines"),
         });
     }
     print_table("BINARY PARSE (from disk)", &binary_parse_results);
@@ -509,8 +509,8 @@ fn main() {
             label: "binary_lines".into(),
             dxf_ms,
             acadrust_ms: acad_ms,
-            acadsharp_ms: f64::NAN,
-            ezdxf_ms: f64::NAN,
+            acadsharp_ms: lookup_acadsharp(&acadsharp, "binary_write", "binary_lines"),
+            ezdxf_ms: lookup_ezdxf(&ezdxf, "binary_write", "binary_lines"),
         });
 
         let drawing = generators::build_dxf_mixed(n);
@@ -521,8 +521,8 @@ fn main() {
             label: "binary_mixed".into(),
             dxf_ms,
             acadrust_ms: acad_ms,
-            acadsharp_ms: f64::NAN,
-            ezdxf_ms: f64::NAN,
+            acadsharp_ms: lookup_acadsharp(&acadsharp, "binary_write", "binary_mixed"),
+            ezdxf_ms: lookup_ezdxf(&ezdxf, "binary_write", "binary_mixed"),
         });
     }
     print_table("BINARY WRITE (to disk)", &binary_write_results);
@@ -563,7 +563,7 @@ fn main() {
             dxf_ms: dxf_rt,
             acadrust_ms: acad_rt,
             acadsharp_ms: lookup_acadsharp(&acadsharp, "binary_roundtrip", "binary_mixed_roundtrip"),
-            ezdxf_ms: f64::NAN,
+            ezdxf_ms: lookup_ezdxf(&ezdxf, "binary_roundtrip", "binary_mixed_roundtrip"),
         });
 
         println!("  Binary roundtrip files kept at:");

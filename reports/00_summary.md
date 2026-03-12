@@ -1,7 +1,7 @@
 # Overall Benchmark Summary
 
-**Date:** March 12, 2026  
-**Libraries:** acadrust v0.3.0, dxf-rs v0.6, ACadSharp v3.4.9  
+**Date:** March 13, 2026  
+**Libraries:** acadrust v0.3.0, dxf-rs v0.6, ACadSharp v3.4.9, ezdxf v1.4.3  
 **Platform:** Windows, Release mode  
 **Scales tested:** Small (100), Medium (1,000), Large (10,000), Huge (100,000 entities)
 
@@ -11,38 +11,39 @@
 
 | Category | Fastest Library | Margin | Notes |
 |---|---|---|---|
-| **DXF Parse** | acadrust | 1.4–3.7× vs dxf-rs, 2–8× vs ACadSharp | Clear leader at all scales |
-| **DXF Write** | acadrust / dxf-rs | Mixed — dxf-rs wins at medium scale | Close race, scale-dependent |
-| **DXF Roundtrip** | acadrust | 1.8–2.9× vs dxf-rs, 3–8× vs ACadSharp | Parse advantage dominates |
-| **Binary DXF Parse** | acadrust ≈ dxf-rs | Neck and neck; ACadSharp 4–8× slower | Rust libraries both strong |
-| **Binary DXF Write** | acadrust | 1.7–9× vs dxf-rs | ACadSharp has no binary DXF write |
-| **Binary DXF Roundtrip** | acadrust | ~2× vs dxf-rs, 5–7× vs ACadSharp | ACadSharp read-only for binary |
-| **DWG Parse** | acadrust | 2–4.5× vs ACadSharp | dxf-rs has no DWG support |
-| **DWG Write** | acadrust | 1.5–6× vs ACadSharp | dxf-rs has no DWG support |
-| **DWG Roundtrip** | acadrust | ~2.7× vs ACadSharp | dxf-rs has no DWG support |
+| **DXF Parse** | acadrust | 2–3× vs dxf-rs, 3–4× vs ACadSharp, 10–20× vs ezdxf | Clear leader at all scales |
+| **DXF Write** | acadrust | 1.2–1.4× vs dxf-rs, 2–3× vs ACadSharp, 9–15× vs ezdxf | Consistent winner |
+| **DXF Roundtrip** | acadrust | 1.8× vs dxf-rs, 3–4× vs ACadSharp, 9–25× vs ezdxf | Parse advantage dominates |
+| **Binary DXF Parse** | acadrust ≈ dxf-rs | Neck and neck; ACadSharp 5–6×, ezdxf 10–27× slower | Rust libraries both strong |
+| **Binary DXF Write** | acadrust | 3–5× vs dxf-rs, 5–10× vs ACadSharp, 15–85× vs ezdxf | acadrust dominates |
+| **Binary DXF Roundtrip** | acadrust | 1.6× vs dxf-rs, 5–8× vs ACadSharp, 20–47× vs ezdxf | acadrust fastest at all scales |
+| **DWG Parse** | acadrust | 2–5× vs ACadSharp | dxf-rs/ezdxf have no DWG support |
+| **DWG Write** | acadrust | 2–5× vs ACadSharp | dxf-rs/ezdxf have no DWG support |
+| **DWG Roundtrip** | acadrust | 2.9–3.4× vs ACadSharp | dxf-rs/ezdxf have no DWG support |
 
 ---
 
 ## Format Support Matrix
 
-| Feature | dxf-rs | acadrust | ACadSharp |
-|---|---|---|---|
-| DXF Read | ✅ | ✅ | ✅ |
-| DXF Write | ✅ | ✅ | ✅ |
-| Binary DXF Read | ✅ | ✅ | ✅ |
-| Binary DXF Write | ✅ | ✅ | ❌ |
-| DWG Read | ❌ | ✅ | ✅ |
-| DWG Write | ❌ | ✅ | ✅ |
+| Feature | dxf-rs | acadrust | ACadSharp | ezdxf |
+|---|---|---|---|---|
+| DXF Read | ✅ | ✅ | ✅ | ✅ |
+| DXF Write | ✅ | ✅ | ✅ | ✅ |
+| Binary DXF Read | ✅ | ✅ | ✅ | ✅ |
+| Binary DXF Write | ✅ | ✅ | ✅ | ✅ |
+| DWG Read | ❌ | ✅ | ✅ | ❌ |
+| DWG Write | ❌ | ✅ | ✅ | ❌ |
 
 ---
 
 ## Key Takeaways
 
 1. **acadrust is the overall fastest library**, winning or tying in every benchmark category.
-2. **dxf-rs** is competitive for binary DXF parsing (matching acadrust) and occasionally wins DXF writing at mid-range scales, but falls behind on parsing.
-3. **ACadSharp** offers the broadest .NET ecosystem compatibility but is consistently slower — typically 3–8× behind acadrust for parsing and 2–6× for writing.
-4. The performance gap **widens at larger scales**, suggesting acadrust's native Rust implementation scales more efficiently with data size.
-5. **DWG benchmarks** are exclusively acadrust vs ACadSharp (dxf-rs has no DWG support), with acadrust leading by 2–4.5× across the board.
+2. **dxf-rs** is competitive for binary DXF parsing (matching acadrust) and is the second-fastest in most categories.
+3. **ACadSharp** offers .NET ecosystem compatibility but is 3–10× behind acadrust. It now supports binary DXF write.
+4. **ezdxf** is the most widely-used Python DXF library but is 10–85× slower than acadrust, reflecting Python's interpreted nature.
+5. The performance gap **widens at larger scales**, confirming acadrust's native Rust implementation scales most efficiently.
+6. **DWG benchmarks** are exclusively acadrust vs ACadSharp (dxf-rs and ezdxf have no DWG support).
 
 ---
 

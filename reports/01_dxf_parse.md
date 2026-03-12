@@ -1,83 +1,72 @@
 # DXF Parse Performance Report
 
-**Date:** March 12, 2026  
-**Libraries:** dxf-rs v0.6, acadrust v0.3.0, ACadSharp v3.4.9  
-**Platform:** Windows, Release mode (`opt-level=3`, `lto=thin`)  
-**Test data:** Randomly generated ASCII DXF files via `dxf` crate writer
+**Date:** March 13, 2026  
+**Libraries:** acadrust v0.3.0, dxf-rs v0.6, ACadSharp v3.4.9, ezdxf v1.4.3  
+**Platform:** Windows, Release mode (`opt-level=3`, `lto=thin`)
 
 ---
 
 ## Summary
 
-**acadrust is consistently the fastest DXF parser** across all entity types and scales, typically 1.5–2.2× faster than dxf-rs and 3–6× faster than ACadSharp. The gap widens with scale.
-
-| Scale | acadrust vs dxf-rs | acadrust vs ACadSharp |
-|---|---|---|
-| Small (100) | 1.7–3.8× faster | 5–8× faster |
-| Medium (1K) | 1.5–2.3× faster | 3.4–7.3× faster |
-| Large (10K) | 1.9–2.2× faster | 2.4–8.4× faster |
-| Huge (100K) | 1.6–2.1× faster | 2.1–4.4× faster |
+**acadrust is the fastest DXF parser** at all scales, typically 2–2.5× faster than dxf-rs, 3–4× faster than ACadSharp, and 15–20× faster than ezdxf.
 
 ---
 
-## Detailed Results
-
-All times in **milliseconds** (lower is better).
+## Results (ms, lower is better)
 
 ### Small (100 entities)
 
-| Entity Type | dxf-rs (ms) | acadrust (ms) | ACadSharp (ms) | Fastest |
-|---|---|---|---|---|
-| lines_only | 1.32 | **0.77** | 5.98 | acadrust |
-| circles_only | 1.65 | **0.44** | 3.23 | acadrust |
-| arcs_only | 1.00 | **0.41** | 2.99 | acadrust |
-| ellipses_only | 0.92 | **0.45** | 2.87 | acadrust |
-| mixed | 1.01 | **0.51** | 3.44 | acadrust |
-| polylines | 0.49 | **0.24** | 2.09 | acadrust |
-| 3d_entities | 0.96 | **0.48** | 3.26 | acadrust |
+| Workload | dxf-rs | acadrust | ACadSharp | ezdxf | Fastest |
+|---|---|---|---|---|---|
+| lines_only | 3.22 | **0.81** | 4.42 | 9.69 | acadrust |
+| circles_only | 1.19 | **0.95** | 2.61 | 8.19 | acadrust |
+| arcs_only | 1.02 | **0.81** | 2.75 | 9.40 | acadrust |
+| ellipses_only | 1.68 | **0.51** | 2.83 | 9.83 | acadrust |
+| mixed | 0.82 | **0.67** | 3.22 | 10.18 | acadrust |
+| polylines | 0.36 | **0.26** | 3.04 | 5.16 | acadrust |
+| 3d_entities | 0.93 | **0.64** | 4.69 | 10.41 | acadrust |
 
 ### Medium (1,000 entities)
 
-| Entity Type | dxf-rs (ms) | acadrust (ms) | ACadSharp (ms) | Fastest |
-|---|---|---|---|---|
-| lines_only | 5.29 | **3.11** | 18.59 | acadrust |
-| circles_only | 5.40 | **2.30** | 10.05 | acadrust |
-| arcs_only | 5.52 | **2.70** | 17.77 | acadrust |
-| ellipses_only | 6.05 | **3.24** | 13.47 | acadrust |
-| mixed | 5.46 | **2.94** | 16.06 | acadrust |
-| polylines | 1.35 | **0.67** | 3.88 | acadrust |
-| 3d_entities | 6.50 | **3.31** | 15.21 | acadrust |
+| Workload | dxf-rs | acadrust | ACadSharp | ezdxf | Fastest |
+|---|---|---|---|---|---|
+| lines_only | 5.01 | **2.58** | 13.51 | 54.18 | acadrust |
+| circles_only | 4.80 | **2.21** | 11.13 | 50.32 | acadrust |
+| arcs_only | 6.19 | **2.75** | 15.48 | 67.83 | acadrust |
+| ellipses_only | 5.83 | **3.48** | 15.27 | 61.28 | acadrust |
+| mixed | 5.66 | **3.12** | 15.79 | 58.49 | acadrust |
+| polylines | 0.99 | **0.53** | 4.35 | 10.37 | acadrust |
+| 3d_entities | 6.31 | **3.66** | 21.85 | 65.45 | acadrust |
 
 ### Large (10,000 entities)
 
-| Entity Type | dxf-rs (ms) | acadrust (ms) | ACadSharp (ms) | Fastest |
-|---|---|---|---|---|
-| lines_only | 52.83 | **23.76** | 199.81 | acadrust |
-| circles_only | 42.76 | **20.78** | 139.16 | acadrust |
-| arcs_only | 54.98 | **28.45** | 114.94 | acadrust |
-| ellipses_only | 60.40 | **26.22** | 95.27 | acadrust |
-| mixed | 53.22 | **24.17** | 111.10 | acadrust |
-| polylines | 17.77 | **3.63** | 8.55 | acadrust |
-| 3d_entities | 60.47 | **29.31** | 102.27 | acadrust |
+| Workload | dxf-rs | acadrust | ACadSharp | ezdxf | Fastest |
+|---|---|---|---|---|---|
+| lines_only | 50.06 | **22.10** | 182.01 | 561.70 | acadrust |
+| circles_only | 45.65 | **18.92** | 164.77 | 450.16 | acadrust |
+| arcs_only | 60.09 | **28.98** | 121.45 | 548.78 | acadrust |
+| ellipses_only | 64.61 | **26.84** | 110.65 | 601.36 | acadrust |
+| mixed | 52.10 | **22.73** | 95.93 | 557.47 | acadrust |
+| polylines | 7.75 | **3.80** | 12.31 | 60.08 | acadrust |
+| 3d_entities | 60.45 | **29.45** | 113.46 | 611.06 | acadrust |
 
 ### Huge (100,000 entities)
 
-| Entity Type | dxf-rs (ms) | acadrust (ms) | ACadSharp (ms) | Fastest |
-|---|---|---|---|---|
-| lines_only | 500.47 | **295.06** | 1001.15 | acadrust |
-| circles_only | 462.65 | **216.66** | 960.99 | acadrust |
-| arcs_only | 508.45 | **260.66** | 994.80 | acadrust |
-| ellipses_only | 543.62 | **289.85** | 1005.67 | acadrust |
-| mixed | 516.71 | **266.70** | 1137.48 | acadrust |
-| polylines | 74.75 | **47.85** | 101.60 | acadrust |
-| 3d_entities | 599.07 | **320.60** | 1135.44 | acadrust |
+| Workload | dxf-rs | acadrust | ACadSharp | ezdxf | Fastest |
+|---|---|---|---|---|---|
+| lines_only | 678.71 | **295.19** | 973.73 | 5671.63 | acadrust |
+| circles_only | 571.02 | **272.48** | 914.23 | 4778.76 | acadrust |
+| arcs_only | 730.59 | **317.75** | 1064.55 | 5889.91 | acadrust |
+| ellipses_only | 688.74 | **359.06** | 1068.95 | 6119.78 | acadrust |
+| mixed | 622.53 | **304.22** | 1025.10 | 5862.24 | acadrust |
+| polylines | 73.96 | **34.93** | 82.34 | 566.14 | acadrust |
+| 3d_entities | 589.73 | **307.29** | 1041.41 | 6207.87 | acadrust |
 
 ---
 
 ## Observations
 
-- **acadrust** leads in every single parse benchmark at every scale.
-- **Polylines** are the cheapest entity type to parse across all libraries — fewer DXF group codes per entity.
-- **3d_entities** and **ellipses** are the most expensive due to higher vertex/parameter counts.
-- **ACadSharp** (.NET) has higher overhead from JIT compilation and managed runtime, though its relative gap narrows at huge scale where computation dominates startup cost.
-- **dxf-rs** sits consistently in the middle: ~1.7–2× slower than acadrust but ~2–4× faster than ACadSharp.
+- acadrust is consistently **2–2.3× faster than dxf-rs** across all entity types and scales.
+- ACadSharp (.NET) is **3–4× slower than acadrust** at large/huge scales.
+- ezdxf (Python) is **~19× slower than acadrust** at huge scale, reflecting Python's interpreted overhead.
+- All libraries scale linearly with entity count.

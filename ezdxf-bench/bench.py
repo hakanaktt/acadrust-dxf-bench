@@ -4,7 +4,7 @@ Called from the Rust harness with:
   python ezdxf-bench/bench.py --dir <bench_output/scale> --iterations <N>
 Outputs JSON timing results to stdout.
 
-ezdxf supports ASCII DXF read/write only (no binary DXF, no DWG).
+ezdxf supports ASCII and Binary DXF read/write (no DWG).
 """
 
 import argparse
@@ -22,6 +22,24 @@ def safe_read(path: str):
     """Read a DXF file using recover mode for maximum compatibility."""
     doc, _ = recover.readfile(path)
     return doc
+
+
+def read_binary(path: str):
+    """Read a binary DXF file with ezdxf.readfile (supports binary natively)."""
+    return ezdxf.readfile(path)
+
+
+def upgrade_doc(doc):
+    """Copy entities to a new R2018 document so it can be saved."""
+    new_doc = ezdxf.new(dxfversion="R2018")
+    msp_src = doc.modelspace()
+    msp_dst = new_doc.modelspace()
+    for entity in msp_src:
+        try:
+            msp_dst.add_entity(entity.copy())
+        except Exception:
+            pass
+    return new_doc
 
 
 def time_parse_dxf(path: str, iterations: int) -> float:
@@ -148,6 +166,75 @@ def main():
         if ms is not None:
             rt_results.append({"Label": "mixed_roundtrip", "Ms": ms})
     results["roundtrip"] = rt_results
+
+    # -------------------------------------------------------------------
+    # BINARY DXF PARSE benchmarks (DXB from disk)
+    # -------------------------------------------------------------------
+    binary_parse_results = []
+    dxb_files = [("binary_mixed", "binary_mixed.dxb"), ("binary_lines", "binary_lines.dxb")]
+    for label, filename in dxb_files:
+        path = os.path.join(bench_dir, filename)
+        if not os.path.exists(path):
+            continue
+        try:
+            # Warmup
+            read_binary(path)
+            start = time.perf_counter()
+            for _ in range(iterations):
+                read_binary(path)
+            elapsed = time.perf_counter() - start
+            ms = (elapsed / iterations) * 1000.0
+            binary_parse_results.append({"Label": label, "Ms": ms})
+        except Exception as ex:
+            print(f"Warning: ezdxf binary parse {label} failed: {ex}", file=sys.stderr)
+    results["binary_parse"] = binary_parse_results
+
+    # -------------------------------------------------------------------
+    # BINARY DXF WRITE benchmarks (DXB to disk)
+    # -------------------------------------------------------------------
+    binary_write_results = []
+    for label, src_name in [("binary_lines", "lines_only.dxf"), ("binary_mixed", "mixed.dxf")]:
+        src_path = os.path.join(bench_dir, src_name)
+        if not os.path.exists(src_path):
+            continue
+        try:
+            doc = safe_read(src_path)
+            out_path = os.path.join(bench_dir, f"write_{label}_ezdxf.dxb")
+            # Warmup
+            doc.saveas(out_path, fmt="bin")
+            start = time.perf_counter()
+            for _ in range(iterations):
+                doc.saveas(out_path, fmt="bin")
+            elapsed = time.perf_counter() - start
+            ms = (elapsed / iterations) * 1000.0
+            binary_write_results.append({"Label": label, "Ms": ms})
+        except Exception as ex:
+            print(f"Warning: ezdxf binary write {label} failed: {ex}", file=sys.stderr)
+    results["binary_write"] = binary_write_results
+
+    # -------------------------------------------------------------------
+    # BINARY DXF ROUNDTRIP benchmarks (read DXB, write DXB)
+    # -------------------------------------------------------------------
+    binary_rt_results = []
+    binary_mixed_src = os.path.join(bench_dir, "binary_mixed.dxb")
+    if os.path.exists(binary_mixed_src):
+        rt_path = os.path.join(rt_dir, "rt_binary_mixed_ezdxf.dxb")
+        try:
+            # Warmup
+            doc = read_binary(binary_mixed_src)
+            upgraded = upgrade_doc(doc)
+            upgraded.saveas(rt_path, fmt="bin")
+            start = time.perf_counter()
+            for _ in range(iterations):
+                doc = read_binary(binary_mixed_src)
+                upgraded = upgrade_doc(doc)
+                upgraded.saveas(rt_path, fmt="bin")
+            elapsed = time.perf_counter() - start
+            ms = (elapsed / iterations) * 1000.0
+            binary_rt_results.append({"Label": "binary_mixed_roundtrip", "Ms": ms})
+        except Exception as ex:
+            print(f"Warning: ezdxf binary roundtrip failed: {ex}", file=sys.stderr)
+    results["binary_roundtrip"] = binary_rt_results
 
     # -------------------------------------------------------------------
     # Output JSON (single line to stdout)
