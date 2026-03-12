@@ -5,3 +5,7 @@
 # .NET artifacts
 acadsharp-bench/bin/
 acadsharp-bench/obj/
+
+# Python artifacts
+__pycache__/
+*.pyc

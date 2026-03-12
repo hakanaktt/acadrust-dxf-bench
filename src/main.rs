@@ -48,6 +48,7 @@ struct TimingResult {
     dxf_ms: f64,
     acadrust_ms: f64,
     acadsharp_ms: f64,
+    ezdxf_ms: f64,
 }
 
 #[derive(Debug, Deserialize)]
@@ -59,6 +60,9 @@ struct AcadSharpTimingEntry {
 }
 
 type AcadSharpResults = HashMap<String, Vec<AcadSharpTimingEntry>>;
+
+/// Results from the ezdxf (Python) benchmark – same JSON shape.
+type EzdxfResults = HashMap<String, Vec<AcadSharpTimingEntry>>;
 
 /// Run the ACadSharp (.NET) benchmark and collect results.
 fn run_acadsharp_bench(out_dir: &Path, iterations: usize) -> Option<AcadSharpResults> {
@@ -119,8 +123,71 @@ fn run_acadsharp_bench(out_dir: &Path, iterations: usize) -> Option<AcadSharpRes
     }
 }
 
+/// Run the ezdxf (Python) benchmark and collect results.
+fn run_ezdxf_bench(out_dir: &Path, iterations: usize) -> Option<EzdxfResults> {
+    let bench_script = PathBuf::from("ezdxf-bench").join("bench.py");
+    let abs_out = std::env::current_dir()
+        .ok()
+        .map(|cwd| cwd.join(out_dir))
+        .unwrap_or_else(|| out_dir.to_path_buf());
+
+    println!("Running ezdxf (Python) benchmarks...");
+    let output = Command::new("python")
+        .arg(&bench_script)
+        .arg("--dir")
+        .arg(&abs_out)
+        .arg("--iterations")
+        .arg(iterations.to_string())
+        .output();
+
+    match output {
+        Ok(o) => {
+            let stderr = String::from_utf8_lossy(&o.stderr);
+            if !stderr.is_empty() {
+                eprintln!("  ezdxf stderr: {}", stderr.trim());
+            }
+            if !o.status.success() {
+                eprintln!("  ezdxf benchmark exited with {}", o.status);
+                return None;
+            }
+            let stdout = String::from_utf8_lossy(&o.stdout);
+            let json_line = stdout.lines().filter(|l| l.starts_with('{')).last();
+            match json_line {
+                Some(line) => match serde_json::from_str::<EzdxfResults>(line) {
+                    Ok(r) => {
+                        println!("  ezdxf benchmarks completed successfully.");
+                        Some(r)
+                    }
+                    Err(e) => {
+                        eprintln!("  Failed to parse ezdxf JSON: {}", e);
+                        None
+                    }
+                },
+                None => {
+                    eprintln!("  No JSON output from ezdxf benchmark.");
+                    None
+                }
+            }
+        }
+        Err(e) => {
+            eprintln!("  Failed to run ezdxf benchmark (is python installed?): {}", e);
+            None
+        }
+    }
+}
+
 /// Look up ACadSharp timing for a given label in a category.
 fn lookup_acadsharp(results: &Option<AcadSharpResults>, category: &str, label: &str) -> f64 {
+    results
+        .as_ref()
+        .and_then(|r| r.get(category))
+        .and_then(|entries| entries.iter().find(|e| e.label == label))
+        .map(|e| e.ms)
+        .unwrap_or(f64::NAN)
+}
+
+/// Look up ezdxf timing for a given label in a category.
+fn lookup_ezdxf(results: &Option<EzdxfResults>, category: &str, label: &str) -> f64 {
     results
         .as_ref()
         .and_then(|r| r.get(category))
@@ -234,7 +301,7 @@ fn main() {
     fs::create_dir_all(&rt_dir).expect("create roundtrip dir");
 
     println!(
-        "\n=== DXF Benchmark: dxf-rs vs acadrust vs ACadSharp  (scale={}, entities={}, iterations={}) ===",
+        "\n=== DXF Benchmark: dxf-rs vs acadrust vs ACadSharp vs ezdxf  (scale={}, entities={}, iterations={}) ===",
         cli.scale, n, iters
     );
     println!("Output directory: {}\n", out_dir.display());
@@ -305,6 +372,12 @@ fn main() {
     println!();
 
     // -----------------------------------------------------------------------
+    // Run ezdxf (Python) benchmarks on the same files
+    // -----------------------------------------------------------------------
+    let ezdxf = run_ezdxf_bench(&out_dir, iters);
+    println!();
+
+    // -----------------------------------------------------------------------
     // PARSE benchmarks (from disk)
     // -----------------------------------------------------------------------
     let mut parse_results = Vec::new();
@@ -315,6 +388,7 @@ fn main() {
             dxf_ms,
             acadrust_ms: acad_ms,
             acadsharp_ms: lookup_acadsharp(&acadsharp, "parse", name),
+            ezdxf_ms: lookup_ezdxf(&ezdxf, "parse", name),
         });
     }
     print_table("PARSE (from disk)", &parse_results);
@@ -332,6 +406,7 @@ fn main() {
         dxf_ms,
         acadrust_ms: acad_ms,
         acadsharp_ms: lookup_acadsharp(&acadsharp, "write", "lines_only"),
+        ezdxf_ms: lookup_ezdxf(&ezdxf, "write", "lines_only"),
     });
 
     let drawing = generators::build_dxf_mixed(n);
@@ -342,6 +417,7 @@ fn main() {
         dxf_ms,
         acadrust_ms: acad_ms,
         acadsharp_ms: lookup_acadsharp(&acadsharp, "write", "mixed"),
+        ezdxf_ms: lookup_ezdxf(&ezdxf, "write", "mixed"),
     });
 
     print_table("WRITE (to disk)", &write_results);
@@ -387,6 +463,7 @@ fn main() {
         dxf_ms: dxf_rt,
         acadrust_ms: acad_rt,
         acadsharp_ms: lookup_acadsharp(&acadsharp, "roundtrip", "mixed_roundtrip"),
+        ezdxf_ms: lookup_ezdxf(&ezdxf, "roundtrip", "mixed_roundtrip"),
     });
 
     print_table("ROUNDTRIP (disk \u{2192} disk)", &rt_results);
@@ -408,6 +485,7 @@ fn main() {
             dxf_ms,
             acadrust_ms: acad_ms,
             acadsharp_ms: lookup_acadsharp(&acadsharp, "binary_parse", "binary_mixed"),
+            ezdxf_ms: f64::NAN,
         });
         let (dxf_ms, acad_ms) = time_parse_file(&binary_lines_path, iters);
         binary_parse_results.push(TimingResult {
@@ -415,6 +493,7 @@ fn main() {
             dxf_ms,
             acadrust_ms: acad_ms,
             acadsharp_ms: lookup_acadsharp(&acadsharp, "binary_parse", "binary_lines"),
+            ezdxf_ms: f64::NAN,
         });
     }
     print_table("BINARY PARSE (from disk)", &binary_parse_results);
@@ -431,6 +510,7 @@ fn main() {
             dxf_ms,
             acadrust_ms: acad_ms,
             acadsharp_ms: f64::NAN,
+            ezdxf_ms: f64::NAN,
         });
 
         let drawing = generators::build_dxf_mixed(n);
@@ -442,6 +522,7 @@ fn main() {
             dxf_ms,
             acadrust_ms: acad_ms,
             acadsharp_ms: f64::NAN,
+            ezdxf_ms: f64::NAN,
         });
     }
     print_table("BINARY WRITE (to disk)", &binary_write_results);
@@ -482,6 +563,7 @@ fn main() {
             dxf_ms: dxf_rt,
             acadrust_ms: acad_rt,
             acadsharp_ms: lookup_acadsharp(&acadsharp, "binary_roundtrip", "binary_mixed_roundtrip"),
+            ezdxf_ms: f64::NAN,
         });
 
         println!("  Binary roundtrip files kept at:");
@@ -511,6 +593,7 @@ fn main() {
             dxf_ms: f64::NAN,
             acadrust_ms: acad_ms,
             acadsharp_ms: lookup_acadsharp(&acadsharp, "dwg_parse", label),
+            ezdxf_ms: f64::NAN,
         });
     }
     print_table("DWG PARSE (from disk)", &dwg_parse_results);
@@ -532,6 +615,7 @@ fn main() {
             dxf_ms: f64::NAN,
             acadrust_ms: acad_ms,
             acadsharp_ms: lookup_acadsharp(&acadsharp, "dwg_write", "dwg_lines"),
+            ezdxf_ms: f64::NAN,
         });
 
         let doc = generators::build_acadrust_mixed(n);
@@ -548,6 +632,7 @@ fn main() {
             dxf_ms: f64::NAN,
             acadrust_ms: acad_ms,
             acadsharp_ms: lookup_acadsharp(&acadsharp, "dwg_write", "dwg_mixed"),
+            ezdxf_ms: f64::NAN,
         });
     }
     print_table("DWG WRITE (to disk)", &dwg_write_results);
@@ -572,6 +657,7 @@ fn main() {
             dxf_ms: f64::NAN,
             acadrust_ms: acad_ms,
             acadsharp_ms: lookup_acadsharp(&acadsharp, "dwg_roundtrip", "dwg_mixed_roundtrip"),
+            ezdxf_ms: f64::NAN,
         });
 
         println!("  DWG roundtrip file kept at:");
@@ -611,6 +697,7 @@ fn print_table(title: &str, results: &[TimingResult]) {
         Cell::new("dxf-rs (ms)"),
         Cell::new("acadrust (ms)"),
         Cell::new("ACadSharp (ms)"),
+        Cell::new("ezdxf (ms)"),
         Cell::new("fastest"),
     ]);
 
@@ -628,6 +715,7 @@ fn print_table(title: &str, results: &[TimingResult]) {
             ("dxf-rs", r.dxf_ms),
             ("acadrust", r.acadrust_ms),
             ("ACadSharp", r.acadsharp_ms),
+            ("ezdxf", r.ezdxf_ms),
         ]
         .into_iter()
         .filter(|(_, v)| !v.is_nan() && *v > 0.0)
@@ -644,6 +732,7 @@ fn print_table(title: &str, results: &[TimingResult]) {
             Cell::new(fmt(r.dxf_ms)),
             Cell::new(fmt(r.acadrust_ms)),
             Cell::new(fmt(r.acadsharp_ms)),
+            Cell::new(fmt(r.ezdxf_ms)),
             Cell::new(fastest),
         ]);
     }
