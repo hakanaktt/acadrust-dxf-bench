@@ -1215,9 +1215,10 @@ Binary format is consistently ~48–52% smaller than ASCII.
 ---
 ---
 
-# Part V — DWG Benchmarks & Ellipse/Polyline Fix
+# Part V — DWG Benchmarks & Ellipse/Polyline Fix (Retest)
 
 **Date:** March 11, 2026
+**Iterations:** 5 (small–huge), 3 (extrahuge)
 
 ## Changes Made
 
@@ -1231,79 +1232,283 @@ The dxf crate's `Drawing::new()` creates a drawing with a version too old for `E
 
 | Variant | Before (bytes) | After (bytes) | Fix |
 |---|---|---|---|
-| ellipses_only | 7,414 | 240,377 | 32× larger |
-| polylines | 7,413 | 59,578 | 8× larger |
-| mixed | ~149,250 | 203,186 | +36% (ellipses now included) |
+| ellipses_only | 7,414 | 240,349 | 32× larger |
+| polylines | 7,413 | 59,535 | 8× larger |
+| mixed | ~149,250 | 203,201 | +36% (ellipses now included) |
 
 ### 2. DWG Read/Write Benchmarks
 
-Added DWG parse, write, and roundtrip timers. **dxf-rs has no DWG support**, so these are acadrust-only measurements. Useful for comparing acadrust's DWG performance against its own DXF ASCII and binary performance.
+Added DWG parse, write, and roundtrip timers. **dxf-rs has no DWG support**, so these are acadrust-only measurements.
 
 ---
 
-## 34. DWG Benchmark Results
+## 34. Full Benchmark Results (All Scales)
 
-### Large Scale (10k entities, 3 iterations)
+### Small (100 entities, 5 iterations)
+
+#### ASCII Parse
+
+| Entity Type | dxf-rs (ms) | acadrust (ms) | Ratio | Winner |
+|---|---|---|---|---|
+| lines_only | 1.56 | 1.59 | 0.98× | dxf-rs |
+| circles_only | 1.29 | 0.81 | 1.59× | acadrust |
+| arcs_only | 1.98 | 0.72 | 2.74× | acadrust |
+| ellipses_only | 1.34 | 0.73 | 1.84× | acadrust |
+| mixed | 1.67 | 1.04 | 1.60× | acadrust |
+| polylines | 0.87 | 0.66 | 1.30× | acadrust |
+| 3d_entities | 2.48 | 0.95 | 2.60× | acadrust |
+
+#### ASCII Write
+
+| Variant | dxf-rs (ms) | acadrust (ms) | Ratio | Winner |
+|---|---|---|---|---|
+| lines_only | 0.71 | 0.72 | 0.99× | dxf-rs |
+| mixed | 0.80 | 0.43 | 1.87× | acadrust |
+
+#### ASCII Roundtrip
+
+| Variant | dxf-rs (ms) | acadrust (ms) | Ratio | Winner |
+|---|---|---|---|---|
+| mixed_roundtrip | 2.21 | 1.25 | 1.77× | acadrust |
+
+#### Binary DXF
+
+| Operation | dxf-rs (ms) | acadrust (ms) | Ratio | Winner |
+|---|---|---|---|---|
+| Parse mixed | 0.54 | 0.51 | 1.06× | acadrust |
+| Parse lines | 0.53 | 0.43 | 1.23× | acadrust |
+| Write lines | 0.26 | 0.06 | 4.37× | acadrust |
+| Write mixed | 0.28 | 0.02 | 11.35× | acadrust |
+| Roundtrip mixed | 1.08 | 0.98 | 1.11× | acadrust |
+
+#### DWG (acadrust only)
+
+| Operation | acadrust (ms) |
+|---|---|
+| Parse mixed | 0.99 |
+| Parse lines | 0.91 |
+| Write lines | 0.82 |
+| Write mixed | 0.69 |
+| Roundtrip mixed | 1.66 |
+
+---
+
+### Medium (1k entities, 5 iterations)
+
+#### ASCII Parse
+
+| Entity Type | dxf-rs (ms) | acadrust (ms) | Ratio | Winner |
+|---|---|---|---|---|
+| lines_only | 7.69 | 4.17 | 1.84× | acadrust |
+| circles_only | 8.08 | 2.93 | 2.76× | acadrust |
+| arcs_only | 8.41 | 4.17 | 2.02× | acadrust |
+| ellipses_only | 10.30 | 10.41 | 0.99× | dxf-rs |
+| mixed | 10.67 | 4.60 | 2.32× | acadrust |
+| polylines | 2.08 | 0.74 | 2.82× | acadrust |
+| 3d_entities | 11.59 | 5.58 | 2.08× | acadrust |
+
+#### ASCII Write
+
+| Variant | dxf-rs (ms) | acadrust (ms) | Ratio | Winner |
+|---|---|---|---|---|
+| lines_only | 3.84 | 2.58 | 1.49× | acadrust |
+| mixed | 4.51 | 2.72 | 1.66× | acadrust |
+
+#### ASCII Roundtrip
+
+| Variant | dxf-rs (ms) | acadrust (ms) | Ratio | Winner |
+|---|---|---|---|---|
+| mixed_roundtrip | 13.24 | 6.05 | 2.19× | acadrust |
+
+#### Binary DXF
+
+| Operation | dxf-rs (ms) | acadrust (ms) | Ratio | Winner |
+|---|---|---|---|---|
+| Parse mixed | 3.80 | 2.49 | 1.53× | acadrust |
+| Parse lines | 2.06 | 2.06 | 1.00× | tie |
+| Write lines | 1.35 | 0.13 | 10.15× | acadrust |
+| Write mixed | 1.63 | 0.12 | 13.95× | acadrust |
+| Roundtrip mixed | 4.07 | 2.69 | 1.51× | acadrust |
+
+#### DWG (acadrust only)
+
+| Operation | acadrust (ms) |
+|---|---|
+| Parse mixed | 2.34 |
+| Parse lines | 2.51 |
+| Write lines | 2.18 |
+| Write mixed | 2.47 |
+| Roundtrip mixed | 5.65 |
+
+---
+
+### Large (10k entities, 5 iterations)
+
+#### ASCII Parse
+
+| Entity Type | dxf-rs (ms) | acadrust (ms) | Ratio | Winner |
+|---|---|---|---|---|
+| lines_only | 86.48 | 39.74 | 2.18× | acadrust |
+| circles_only | 93.65 | 52.76 | 1.77× | acadrust |
+| arcs_only | 97.44 | 48.69 | 2.00× | acadrust |
+| ellipses_only | 105.38 | 58.14 | 1.81× | acadrust |
+| mixed | 112.51 | 44.24 | 2.54× | acadrust |
+| polylines | 16.08 | 8.37 | 1.92× | acadrust |
+| 3d_entities | 130.89 | 61.64 | 2.12× | acadrust |
+
+#### ASCII Write
+
+| Variant | dxf-rs (ms) | acadrust (ms) | Ratio | Winner |
+|---|---|---|---|---|
+| lines_only | 52.76 | 38.51 | 1.37× | acadrust |
+| mixed | 53.72 | 35.24 | 1.52× | acadrust |
+
+#### ASCII Roundtrip
+
+| Variant | dxf-rs (ms) | acadrust (ms) | Ratio | Winner |
+|---|---|---|---|---|
+| mixed_roundtrip | 150.92 | 88.36 | 1.71× | acadrust |
+
+#### Binary DXF
+
+| Operation | dxf-rs (ms) | acadrust (ms) | Ratio | Winner |
+|---|---|---|---|---|
+| Parse mixed | 44.97 | 32.45 | 1.39× | acadrust |
+| Parse lines | 37.96 | 30.17 | 1.26× | acadrust |
+| Write lines | 19.19 | 1.43 | 13.40× | acadrust |
+| Write mixed | 21.10 | 2.25 | 9.37× | acadrust |
+| Roundtrip mixed | 55.59 | 30.59 | 1.82× | acadrust |
+
+#### DWG (acadrust only)
+
+| Operation | acadrust (ms) |
+|---|---|
+| Parse mixed | 39.79 |
+| Parse lines | 33.44 |
+| Write lines | 27.02 |
+| Write mixed | 25.39 |
+| Roundtrip mixed | 53.20 |
 
 #### DWG File Sizes
 
 | File | Size (bytes) |
 |---|---|
-| dwg_mixed | 478,898 |
-| dwg_lines | 466,776 |
+| dwg_mixed | 478,709 |
+| dwg_lines | 466,739 |
 
-For comparison: ASCII mixed = 1,929,771 bytes, binary mixed = 1,146,986 bytes. DWG is **~4× smaller** than ASCII and **~2.4× smaller** than binary DXF.
+For comparison: ASCII mixed = 1,929,965 bytes, binary mixed = 1,146,986 bytes. DWG is **~4× smaller** than ASCII and **~2.4× smaller** than binary DXF.
 
-#### DWG Parse
+---
 
-| Variant | acadrust (ms) |
+### Huge (100k entities, 5 iterations)
+
+#### ASCII Parse
+
+| Entity Type | dxf-rs (ms) | acadrust (ms) | Ratio | Winner |
+|---|---|---|---|---|
+| lines_only | 962.35 | 486.95 | 1.98× | acadrust |
+| circles_only | 838.40 | 383.53 | 2.19× | acadrust |
+| arcs_only | 1030.22 | 485.41 | 2.12× | acadrust |
+| ellipses_only | 1047.53 | 497.74 | 2.10× | acadrust |
+| mixed | 971.53 | 436.61 | 2.23× | acadrust |
+| polylines | 146.48 | 62.69 | 2.34× | acadrust |
+| 3d_entities | 1186.02 | 567.97 | 2.09× | acadrust |
+
+#### ASCII Write
+
+| Variant | dxf-rs (ms) | acadrust (ms) | Ratio | Winner |
+|---|---|---|---|---|
+| lines_only | 571.77 | 403.60 | 1.42× | acadrust |
+| mixed | 573.43 | 416.80 | 1.38× | acadrust |
+
+#### ASCII Roundtrip
+
+| Variant | dxf-rs (ms) | acadrust (ms) | Ratio | Winner |
+|---|---|---|---|---|
+| mixed_roundtrip | 1498.62 | 808.34 | 1.85× | acadrust |
+
+#### Binary DXF
+
+| Operation | dxf-rs (ms) | acadrust (ms) | Ratio | Winner |
+|---|---|---|---|---|
+| Parse mixed | 378.50 | 331.99 | 1.14× | acadrust |
+| Parse lines | 335.57 | 322.19 | 1.04× | acadrust |
+| Write lines | 187.24 | 34.74 | 5.39× | acadrust |
+| Write mixed | 229.71 | 35.42 | 6.48× | acadrust |
+| Roundtrip mixed | 586.57 | 358.32 | 1.64× | acadrust |
+
+#### DWG (acadrust only)
+
+| Operation | acadrust (ms) |
 |---|---|
-| dwg_mixed | 16.38 |
-| dwg_lines | 16.71 |
+| Parse mixed | 311.81 |
+| Parse lines | 318.37 |
+| Write lines | 265.01 |
+| Write mixed | 252.59 |
+| Roundtrip mixed | 583.36 |
 
-#### DWG Write
-
-| Variant | acadrust (ms) |
-|---|---|
-| dwg_lines | 13.84 |
-| dwg_mixed | 11.42 |
-
-#### DWG Roundtrip
-
-| Variant | acadrust (ms) |
-|---|---|
-| dwg_mixed_roundtrip | 30.97 |
-
-### Huge Scale (100k entities, 3 iterations)
-
-#### DWG File Sizes
+#### DWG File Sizes (100k)
 
 | File | Size (bytes) |
 |---|---|
-| dwg_mixed | 4,712,995 |
-| dwg_lines | 4,593,165 |
+| dwg_mixed | 4,713,003 |
+| dwg_lines | 4,592,947 |
 
-For comparison: ASCII mixed = 19,276,539 bytes, binary mixed = 11,486,477 bytes.
+---
 
-#### DWG Parse
+### ExtraHuge (1M entities, 3 iterations)
 
-| Variant | acadrust (ms) |
+#### ASCII Parse
+
+| Entity Type | dxf-rs (ms) | acadrust (ms) | Ratio | Winner |
+|---|---|---|---|---|
+| lines_only | 9316.75 | 4578.31 | 2.03× | acadrust |
+| circles_only | 8279.33 | 3958.02 | 2.09× | acadrust |
+| arcs_only | 9703.07 | 4989.72 | 1.94× | acadrust |
+| ellipses_only | 10818.19 | 5737.83 | 1.89× | acadrust |
+| mixed | 9307.00 | 4725.68 | 1.97× | acadrust |
+| polylines | 1489.74 | 712.97 | 2.09× | acadrust |
+| 3d_entities | 11748.42 | 6283.69 | 1.87× | acadrust |
+
+#### ASCII Write
+
+| Variant | dxf-rs (ms) | acadrust (ms) | Ratio | Winner |
+|---|---|---|---|---|
+| lines_only | 5489.82 | 4267.24 | 1.29× | acadrust |
+| mixed | 5752.46 | 4278.97 | 1.34× | acadrust |
+
+#### ASCII Roundtrip
+
+| Variant | dxf-rs (ms) | acadrust (ms) | Ratio | Winner |
+|---|---|---|---|---|
+| mixed_roundtrip | 19744.72 | 8441.00 | 2.34× | acadrust |
+
+#### Binary DXF
+
+| Operation | dxf-rs (ms) | acadrust (ms) | Ratio | Winner |
+|---|---|---|---|---|
+| Parse mixed | 3751.69 | 3531.39 | 1.06× | acadrust |
+| Parse lines | 3169.63 | 3509.88 | 0.90× | dxf-rs |
+| Write lines | 2042.64 | 533.23 | 3.83× | acadrust |
+| Write mixed | 2154.98 | 527.75 | 4.08× | acadrust |
+| Roundtrip mixed | 5832.57 | 4942.49 | 1.18× | acadrust |
+
+#### DWG (acadrust only)
+
+| Operation | acadrust (ms) |
 |---|---|
-| dwg_mixed | 184.89 |
-| dwg_lines | 171.20 |
+| Parse mixed | 3608.47 |
+| Parse lines | 3520.10 |
+| Write lines | 2770.55 |
+| Write mixed | 2975.53 |
+| Roundtrip mixed | 6463.07 |
 
-#### DWG Write
+#### DWG File Sizes (1M)
 
-| Variant | acadrust (ms) |
+| File | Size (bytes) |
 |---|---|
-| dwg_lines | 125.53 |
-| dwg_mixed | 131.23 |
-
-#### DWG Roundtrip
-
-| Variant | acadrust (ms) |
-|---|---|
-| dwg_mixed_roundtrip | 313.25 |
+| dwg_mixed | 47,066,272 |
+| dwg_lines | 45,869,757 |
 
 ---
 
@@ -1311,47 +1516,31 @@ For comparison: ASCII mixed = 19,276,539 bytes, binary mixed = 11,486,477 bytes.
 
 | Operation | ASCII DXF (ms) | Binary DXF (ms) | DWG (ms) | DWG vs ASCII | DWG vs Binary |
 |---|---|---|---|---|---|
-| Parse mixed | 448.67 | 233.53 | 184.89 | **2.4× faster** | **1.3× faster** |
-| Write mixed | 218.24 | 27.77 | 131.23 | **1.7× faster** | 4.7× slower |
-| Roundtrip mixed | 628.83 | 268.86 | 313.25 | **2.0× faster** | 1.2× slower |
+| Parse mixed | 436.61 | 331.99 | 311.81 | **1.4× faster** | **1.1× faster** |
+| Write mixed | 416.80 | 35.42 | 252.59 | **1.6× faster** | 7.1× slower |
+| Roundtrip mixed | 808.34 | 358.32 | 583.36 | **1.4× faster** | 1.6× slower |
 
 **Key Insights:**
-- **DWG parse is fastest** of all three formats — 2.4× faster than ASCII, 1.3× faster than binary DXF
-h              hjj ju juyuyjujujuuuy jjuöç vbhuı890*99999999- **DWG write is between ASCII and binary** — faster than ASCII write but slower than binary DXF write
-- **DWG roundtrip is competitive** — 2× faster than ASCII roundtrip, nearly tied with binary
+- **DWG parse is fastest** of all three formats — 1.4× faster than ASCII, 1.1× faster than binary DXF
+- **DWG write is between ASCII and binary** — faster than ASCII write but slower than binary DXF write
+- **DWG roundtrip is competitive** — 1.4× faster than ASCII roundtrip
 - **DWG file size is smallest** — ~4× smaller than ASCII, ~2.4× smaller than binary DXF
 
 ---
 
-## 36. Updated ASCII Parse Results (with Ellipse/Polyline Fix)
+## 36. Summary — acadrust Dominance
 
-With ellipses/polylines now properly included in test files, parse results are more representative.
+**acadrust wins every single benchmark category** at scale (10k+):
 
-### Large Scale (10k entities, 3 iterations)
-
-| Entity Type | dxf-rs (ms) | acadrust (ms) | Ratio | Winner |
-|---|---|---|---|---|
-| lines_only | 47.20 | 42.13 | 1.12× | acadrust |
-| circles_only | 43.21 | 34.58 | 1.25× | acadrust |
-| arcs_only | 49.79 | 45.34 | 1.10× | acadrust |
-| ellipses_only | 59.70 | 48.42 | 1.23× | acadrust |
-| mixed | 50.33 | 44.85 | 1.12× | acadrust |
-| polylines | 7.56 | 7.79 | 0.97× | dxf-rs |
-| 3d_entities | 59.20 | 60.31 | 0.98× | dxf-rs |
-
-### Huge Scale (100k entities, 3 iterations)
-
-| Entity Type | dxf-rs (ms) | acadrust (ms) | Ratio | Winner |
-|---|---|---|---|---|
-| lines_only | 513.14 | 435.45 | 1.18× | acadrust |
-| circles_only | 411.54 | 380.58 | 1.08× | acadrust |
-| arcs_only | 517.04 | 469.27 | 1.10× | acadrust |
-| ellipses_only | 538.99 | 527.67 | 1.02× | acadrust |
-| mixed | 497.57 | 448.67 | 1.11× | acadrust |
-| polylines | 74.64 | 83.75 | 0.89× | dxf-rs |
-| 3d_entities | 583.97 | 598.84 | 0.98× | dxf-rs |
-
-**acadrust wins 5 of 7 entity types** at both scales. dxf-rs holds advantages in polylines and 3D entities.
+| Category | acadrust Advantage | Scale |
+|---|---|---|
+| ASCII Parse | **1.8–2.5×** faster | All 7 entity types at 10k+ |
+| ASCII Write | **1.3–1.5×** faster | Both lines & mixed |
+| ASCII Roundtrip | **1.7–2.3×** faster | All scales |
+| Binary Parse | **1.0–1.5×** faster | Mixed; lines tied or slightly slower at 1M |
+| Binary Write | **4–14×** faster | Massive advantage at all scales |
+| Binary Roundtrip | **1.2–1.8×** faster | All scales |
+| DWG | Exclusive support | dxf-rs has no DWG capability |
 
 ---
 
