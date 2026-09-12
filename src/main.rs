@@ -6,20 +6,30 @@
 //! Usage:
 //!   cargo run --release -- [--scale small|medium|large|huge]
 
+mod custom;
+mod gui;
+mod python;
+mod report;
+mod runners;
+
 use acadrust_dxf_bench::generators::{self, Scale};
 use clap::Parser;
 use comfy_table::{Cell, ContentArrangement, Table};
+use report::{write_report, ReportSection, TimingResult};
 use serde::Deserialize;
 use std::collections::HashMap;
 use std::fs;
 use std::io::{BufReader, BufWriter};
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::time::Instant;
 
 #[derive(Parser)]
 #[command(name = "dxf-bench", about = "Quick DXF benchmark comparison")]
 struct Cli {
+    /// Open the native graphical interface.
+    #[arg(long)]
+    gui: bool,
+
     /// Scale preset: small (100), medium (1k), large (10k), huge (100k)
     #[arg(long, default_value = "large")]
     scale: String,
@@ -27,6 +37,14 @@ struct Cli {
     /// Number of iterations for timing
     #[arg(long, default_value_t = 5)]
     iterations: usize,
+
+    /// Benchmark one or more user-provided .dxf, .dxb, or .dwg files.
+    #[arg(long = "input", alias = "file", value_name = "PATH")]
+    input: Vec<PathBuf>,
+
+    /// Write reports to this Markdown path (JSON is written alongside it).
+    #[arg(long, value_name = "PATH")]
+    report: Option<PathBuf>,
 }
 
 fn resolve_scale(s: &str) -> Scale {
@@ -41,14 +59,6 @@ fn resolve_scale(s: &str) -> Scale {
             Scale::Large
         }
     }
-}
-
-struct TimingResult {
-    label: String,
-    dxf_ms: f64,
-    acadrust_ms: f64,
-    acadsharp_ms: f64,
-    ezdxf_ms: f64,
 }
 
 #[derive(Debug, Deserialize)]
@@ -66,25 +76,13 @@ type EzdxfResults = HashMap<String, Vec<AcadSharpTimingEntry>>;
 
 /// Run the ACadSharp (.NET) benchmark and collect results.
 fn run_acadsharp_bench(out_dir: &Path, iterations: usize) -> Option<AcadSharpResults> {
-    let bench_dir = PathBuf::from("acadsharp-bench");
     let abs_out = std::env::current_dir()
         .ok()
         .map(|cwd| cwd.join(out_dir))
         .unwrap_or_else(|| out_dir.to_path_buf());
 
     println!("Running ACadSharp (.NET) benchmarks...");
-    let output = Command::new("dotnet")
-        .arg("run")
-        .arg("-c")
-        .arg("Release")
-        .arg("--project")
-        .arg(&bench_dir)
-        .arg("--")
-        .arg("--dir")
-        .arg(&abs_out)
-        .arg("--iterations")
-        .arg(iterations.to_string())
-        .output();
+    let output = runners::run_acadsharp(&abs_out, iterations);
 
     match output {
         Ok(o) => {
@@ -117,7 +115,10 @@ fn run_acadsharp_bench(out_dir: &Path, iterations: usize) -> Option<AcadSharpRes
             }
         }
         Err(e) => {
-            eprintln!("  Failed to run ACadSharp benchmark (is dotnet installed?): {}", e);
+            eprintln!(
+                "  Failed to run ACadSharp benchmark (is dotnet installed?): {}",
+                e
+            );
             None
         }
     }
@@ -132,13 +133,7 @@ fn run_ezdxf_bench(out_dir: &Path, iterations: usize) -> Option<EzdxfResults> {
         .unwrap_or_else(|| out_dir.to_path_buf());
 
     println!("Running ezdxf (Python) benchmarks...");
-    let output = Command::new("python")
-        .arg(&bench_script)
-        .arg("--dir")
-        .arg(&abs_out)
-        .arg("--iterations")
-        .arg(iterations.to_string())
-        .output();
+    let output = python::run_ezdxf_bench(&bench_script, &abs_out, iterations);
 
     match output {
         Ok(o) => {
@@ -170,7 +165,10 @@ fn run_ezdxf_bench(out_dir: &Path, iterations: usize) -> Option<EzdxfResults> {
             }
         }
         Err(e) => {
-            eprintln!("  Failed to run ezdxf benchmark (is python installed?): {}", e);
+            eprintln!(
+                "  Failed to run ezdxf benchmark (is python installed?): {}",
+                e
+            );
             None
         }
     }
@@ -248,7 +246,9 @@ fn time_write_to_disk(
         let file = fs::File::create(&acad_path).expect("create acadrust write file");
         let writer = BufWriter::new(file);
         let dxf_writer = acadrust::DxfWriter::new(doc);
-        dxf_writer.write_to_writer(writer).expect("acadrust write to disk");
+        dxf_writer
+            .write_to_writer(writer)
+            .expect("acadrust write to disk");
     }
     let acad_total = start.elapsed().as_secs_f64() * 1000.0 / iterations as f64;
 
@@ -271,7 +271,9 @@ fn time_write_binary_to_disk(
     for _ in 0..iterations {
         let file = fs::File::create(&dxf_path).expect("create dxf binary write file");
         let mut writer = BufWriter::new(file);
-        drawing.save_binary(&mut writer).expect("dxf save_binary to disk");
+        drawing
+            .save_binary(&mut writer)
+            .expect("dxf save_binary to disk");
     }
     let dxf_total = start.elapsed().as_secs_f64() * 1000.0 / iterations as f64;
 
@@ -281,7 +283,9 @@ fn time_write_binary_to_disk(
         let file = fs::File::create(&acad_path).expect("create acadrust binary write file");
         let writer = BufWriter::new(file);
         let dxf_writer = acadrust::DxfWriter::new_binary(doc);
-        dxf_writer.write_to_writer(writer).expect("acadrust binary write to disk");
+        dxf_writer
+            .write_to_writer(writer)
+            .expect("acadrust binary write to disk");
     }
     let acad_total = start.elapsed().as_secs_f64() * 1000.0 / iterations as f64;
 
@@ -290,6 +294,23 @@ fn time_write_binary_to_disk(
 
 fn main() {
     let cli = Cli::parse();
+
+    if cli.gui {
+        if let Err(error) = gui::run() {
+            eprintln!("GUI error: {error}");
+            std::process::exit(1);
+        }
+        return;
+    }
+
+    if !cli.input.is_empty() {
+        if let Err(error) = custom::run(&cli.input, cli.iterations, cli.report.clone()) {
+            eprintln!("Custom benchmark error: {error}");
+            std::process::exit(1);
+        }
+        return;
+    }
+
     let scale = resolve_scale(&cli.scale);
     let n = scale.count();
     let iters = cli.iterations;
@@ -316,7 +337,12 @@ fn main() {
     for (name, data) in &variants {
         let path = out_dir.join(format!("{}.dxf", name));
         fs::write(&path, data).expect("write test DXF to disk");
-        println!("  {:<20} {:>10} bytes  -> {}", name, data.len(), path.display());
+        println!(
+            "  {:<20} {:>10} bytes  -> {}",
+            name,
+            data.len(),
+            path.display()
+        );
         input_files.push((name.to_string(), path));
     }
     println!();
@@ -503,8 +529,7 @@ fn main() {
     {
         let drawing = generators::build_dxf_lines(n);
         let doc = generators::build_acadrust_lines(n);
-        let (dxf_ms, acad_ms) =
-            time_write_binary_to_disk(&drawing, &doc, &out_dir, "lines", iters);
+        let (dxf_ms, acad_ms) = time_write_binary_to_disk(&drawing, &doc, &out_dir, "lines", iters);
         binary_write_results.push(TimingResult {
             label: "binary_lines".into(),
             dxf_ms,
@@ -515,8 +540,7 @@ fn main() {
 
         let drawing = generators::build_dxf_mixed(n);
         let doc = generators::build_acadrust_mixed(n);
-        let (dxf_ms, acad_ms) =
-            time_write_binary_to_disk(&drawing, &doc, &out_dir, "mixed", iters);
+        let (dxf_ms, acad_ms) = time_write_binary_to_disk(&drawing, &doc, &out_dir, "mixed", iters);
         binary_write_results.push(TimingResult {
             label: "binary_mixed".into(),
             dxf_ms,
@@ -562,7 +586,11 @@ fn main() {
             label: "binary_mixed_roundtrip".into(),
             dxf_ms: dxf_rt,
             acadrust_ms: acad_rt,
-            acadsharp_ms: lookup_acadsharp(&acadsharp, "binary_roundtrip", "binary_mixed_roundtrip"),
+            acadsharp_ms: lookup_acadsharp(
+                &acadsharp,
+                "binary_roundtrip",
+                "binary_mixed_roundtrip",
+            ),
             ezdxf_ms: lookup_ezdxf(&ezdxf, "binary_roundtrip", "binary_mixed_roundtrip"),
         });
 
@@ -579,7 +607,10 @@ fn main() {
 
     // DWG parse (from disk)
     let mut dwg_parse_results = Vec::new();
-    for (label, path) in &[("dwg_mixed", &dwg_mixed_path), ("dwg_lines", &dwg_lines_path)] {
+    for (label, path) in &[
+        ("dwg_mixed", &dwg_mixed_path),
+        ("dwg_lines", &dwg_lines_path),
+    ] {
         let start = Instant::now();
         for _ in 0..iters {
             let file = fs::File::open(path).expect("open DWG for parse");
@@ -665,6 +696,35 @@ fn main() {
         println!();
     }
     print_table("DWG ROUNDTRIP (disk \u{2192} disk)", &dwg_rt_results);
+
+    let report_sections = vec![
+        ReportSection::new("DXF Parse", parse_results.clone()),
+        ReportSection::new("DXF Write", write_results.clone()),
+        ReportSection::new("DXF Roundtrip", rt_results.clone()),
+        ReportSection::new("Binary DXF Parse", binary_parse_results.clone()),
+        ReportSection::new("Binary DXF Write", binary_write_results.clone()),
+        ReportSection::new("Binary DXF Roundtrip", binary_rt_results.clone()),
+        ReportSection::new("DWG Parse", dwg_parse_results.clone()),
+        ReportSection::new("DWG Write", dwg_write_results.clone()),
+        ReportSection::new("DWG Roundtrip", dwg_rt_results.clone()),
+    ];
+    let report_path = cli
+        .report
+        .clone()
+        .unwrap_or_else(|| out_dir.join("report.md"));
+    match write_report(
+        &report_path,
+        &format!("preset: {}", cli.scale),
+        iters,
+        &report_sections,
+    ) {
+        Ok((markdown, json)) => println!(
+            "Reports written to:\n  {}\n  {}\n",
+            markdown.display(),
+            json.display()
+        ),
+        Err(error) => eprintln!("Failed to write report: {error}"),
+    }
 
     // -----------------------------------------------------------------------
     // PARSE-DETAIL comparison – what does each library extract from the file?
@@ -966,10 +1026,13 @@ fn spot_check_line(drawing: &dxf::Drawing, doc: &acadrust::CadDocument) -> Vec<V
         ]);
         rows.push(vec![
             "LINE.layer".into(),
-            drawing.entities().find_map(|e| match &e.specific {
-                dxf::entities::EntityType::Line(_) => Some(e.common.layer.clone()),
-                _ => None,
-            }).unwrap_or_default(),
+            drawing
+                .entities()
+                .find_map(|e| match &e.specific {
+                    dxf::entities::EntityType::Line(_) => Some(e.common.layer.clone()),
+                    _ => None,
+                })
+                .unwrap_or_default(),
             al.common.layer.clone(),
         ]);
     }
@@ -986,19 +1049,21 @@ fn spot_check_line(drawing: &dxf::Drawing, doc: &acadrust::CadDocument) -> Vec<V
     if let (Some((dc, dl)), Some(ac)) = (dxf_circle, acad_circle) {
         rows.push(vec![
             "CIRCLE.center".into(),
-            format!("({:.4}, {:.4}, {:.4})", dc.center.x, dc.center.y, dc.center.z),
-            format!("({:.4}, {:.4}, {:.4})", ac.center.x, ac.center.y, ac.center.z),
+            format!(
+                "({:.4}, {:.4}, {:.4})",
+                dc.center.x, dc.center.y, dc.center.z
+            ),
+            format!(
+                "({:.4}, {:.4}, {:.4})",
+                ac.center.x, ac.center.y, ac.center.z
+            ),
         ]);
         rows.push(vec![
             "CIRCLE.radius".into(),
             format!("{:.4}", dc.radius),
             format!("{:.4}", ac.radius),
         ]);
-        rows.push(vec![
-            "CIRCLE.layer".into(),
-            dl,
-            ac.common.layer.clone(),
-        ]);
+        rows.push(vec!["CIRCLE.layer".into(), dl, ac.common.layer.clone()]);
     }
 
     // Find first Arc
@@ -1013,8 +1078,14 @@ fn spot_check_line(drawing: &dxf::Drawing, doc: &acadrust::CadDocument) -> Vec<V
     if let (Some((da, dl)), Some(aa)) = (dxf_arc, acad_arc) {
         rows.push(vec![
             "ARC.center".into(),
-            format!("({:.4}, {:.4}, {:.4})", da.center.x, da.center.y, da.center.z),
-            format!("({:.4}, {:.4}, {:.4})", aa.center.x, aa.center.y, aa.center.z),
+            format!(
+                "({:.4}, {:.4}, {:.4})",
+                da.center.x, da.center.y, da.center.z
+            ),
+            format!(
+                "({:.4}, {:.4}, {:.4})",
+                aa.center.x, aa.center.y, aa.center.z
+            ),
         ]);
         rows.push(vec![
             "ARC.radius".into(),
@@ -1024,18 +1095,22 @@ fn spot_check_line(drawing: &dxf::Drawing, doc: &acadrust::CadDocument) -> Vec<V
         rows.push(vec![
             "ARC.start_angle".into(),
             format!("{:.4}°", da.start_angle),
-            format!("{:.4} rad ({:.4}°)", aa.start_angle, aa.start_angle.to_degrees()),
+            format!(
+                "{:.4} rad ({:.4}°)",
+                aa.start_angle,
+                aa.start_angle.to_degrees()
+            ),
         ]);
         rows.push(vec![
             "ARC.end_angle".into(),
             format!("{:.4}°", da.end_angle),
-            format!("{:.4} rad ({:.4}°)", aa.end_angle, aa.end_angle.to_degrees()),
+            format!(
+                "{:.4} rad ({:.4}°)",
+                aa.end_angle,
+                aa.end_angle.to_degrees()
+            ),
         ]);
-        rows.push(vec![
-            "ARC.layer".into(),
-            dl,
-            aa.common.layer.clone(),
-        ]);
+        rows.push(vec!["ARC.layer".into(), dl, aa.common.layer.clone()]);
     }
 
     // Find first Ellipse
@@ -1050,24 +1125,32 @@ fn spot_check_line(drawing: &dxf::Drawing, doc: &acadrust::CadDocument) -> Vec<V
     if let (Some((de, dl)), Some(ae)) = (dxf_ellipse, acad_ellipse) {
         rows.push(vec![
             "ELLIPSE.center".into(),
-            format!("({:.4}, {:.4}, {:.4})", de.center.x, de.center.y, de.center.z),
-            format!("({:.4}, {:.4}, {:.4})", ae.center.x, ae.center.y, ae.center.z),
+            format!(
+                "({:.4}, {:.4}, {:.4})",
+                de.center.x, de.center.y, de.center.z
+            ),
+            format!(
+                "({:.4}, {:.4}, {:.4})",
+                ae.center.x, ae.center.y, ae.center.z
+            ),
         ]);
         rows.push(vec![
             "ELLIPSE.major_axis".into(),
-            format!("({:.4}, {:.4}, {:.4})", de.major_axis.x, de.major_axis.y, de.major_axis.z),
-            format!("({:.4}, {:.4}, {:.4})", ae.major_axis.x, ae.major_axis.y, ae.major_axis.z),
+            format!(
+                "({:.4}, {:.4}, {:.4})",
+                de.major_axis.x, de.major_axis.y, de.major_axis.z
+            ),
+            format!(
+                "({:.4}, {:.4}, {:.4})",
+                ae.major_axis.x, ae.major_axis.y, ae.major_axis.z
+            ),
         ]);
         rows.push(vec![
             "ELLIPSE.axis_ratio".into(),
             format!("{:.4}", de.minor_axis_ratio),
             format!("{:.4}", ae.minor_axis_ratio),
         ]);
-        rows.push(vec![
-            "ELLIPSE.layer".into(),
-            dl,
-            ae.common.layer.clone(),
-        ]);
+        rows.push(vec!["ELLIPSE.layer".into(), dl, ae.common.layer.clone()]);
     }
 
     rows
@@ -1075,8 +1158,10 @@ fn spot_check_line(drawing: &dxf::Drawing, doc: &acadrust::CadDocument) -> Vec<V
 
 /// Parse the input file with both libraries and print a detailed comparison.
 fn print_parse_detail(input_path: &Path) {
-    println!("\n=== PARSE DETAIL: what each library extracts from {} ===\n",
-        input_path.file_name().unwrap_or_default().to_string_lossy());
+    println!(
+        "\n=== PARSE DETAIL: what each library extracts from {} ===\n",
+        input_path.file_name().unwrap_or_default().to_string_lossy()
+    );
 
     // --- Parse with both libraries ---
     let dxf_drawing = {
@@ -1173,8 +1258,12 @@ fn print_parse_detail(input_path: &Path) {
         let acad_counts = count_acadrust_entities(&acad_doc);
 
         let mut all_types: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
-        for (k, _) in &dxf_counts { all_types.insert(k.clone()); }
-        for (k, _) in &acad_counts { all_types.insert(k.clone()); }
+        for (k, _) in &dxf_counts {
+            all_types.insert(k.clone());
+        }
+        for (k, _) in &acad_counts {
+            all_types.insert(k.clone());
+        }
 
         let dxf_map: std::collections::BTreeMap<String, usize> = dxf_counts.into_iter().collect();
         let acad_map: std::collections::BTreeMap<String, usize> = acad_counts.into_iter().collect();
@@ -1291,7 +1380,10 @@ fn print_parse_detail(input_path: &Path) {
                     Cell::new(&row[2]),
                 ]);
             }
-            println!("Geometric spot-check (1st entity of each type):\n{}\n", table);
+            println!(
+                "Geometric spot-check (1st entity of each type):\n{}\n",
+                table
+            );
         }
     }
 
@@ -1307,20 +1399,28 @@ fn print_parse_detail(input_path: &Path) {
 
         let mut dxf_lts: Vec<_> = dxf_drawing.line_types().map(|lt| lt.name.clone()).collect();
         dxf_lts.sort();
-        let acad_lts: Vec<_> = acad_doc.line_types.iter().map(|lt| lt.name.clone()).collect();
+        let acad_lts: Vec<_> = acad_doc
+            .line_types
+            .iter()
+            .map(|lt| lt.name.clone())
+            .collect();
 
         let mut all_names: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
-        for n in &dxf_lts { all_names.insert(n.clone()); }
-        for n in &acad_lts { all_names.insert(n.clone()); }
+        for n in &dxf_lts {
+            all_names.insert(n.clone());
+        }
+        for n in &acad_lts {
+            all_names.insert(n.clone());
+        }
 
         for name in &all_names {
             let in_dxf = if dxf_lts.contains(name) { "✓" } else { "—" };
-            let in_acad = if acad_lts.contains(name) { "✓" } else { "—" };
-            table.add_row(vec![
-                Cell::new(name),
-                Cell::new(in_dxf),
-                Cell::new(in_acad),
-            ]);
+            let in_acad = if acad_lts.contains(name) {
+                "✓"
+            } else {
+                "—"
+            };
+            table.add_row(vec![Cell::new(name), Cell::new(in_dxf), Cell::new(in_acad)]);
         }
 
         println!("LineTypes:\n{}\n", table);
@@ -1401,54 +1501,68 @@ fn print_parse_detail(input_path: &Path) {
         ]);
         table.add_row(vec![
             Cell::new("EXTMIN"),
-            Cell::new(format!("({:.2}, {:.2}, {:.2})",
+            Cell::new(format!(
+                "({:.2}, {:.2}, {:.2})",
                 dh.minimum_drawing_extents.x,
                 dh.minimum_drawing_extents.y,
-                dh.minimum_drawing_extents.z)),
-            Cell::new(format!("({:.2}, {:.2}, {:.2})",
+                dh.minimum_drawing_extents.z
+            )),
+            Cell::new(format!(
+                "({:.2}, {:.2}, {:.2})",
                 ah.model_space_extents_min.x,
                 ah.model_space_extents_min.y,
-                ah.model_space_extents_min.z)),
+                ah.model_space_extents_min.z
+            )),
         ]);
         table.add_row(vec![
             Cell::new("EXTMAX"),
-            Cell::new(format!("({:.2}, {:.2}, {:.2})",
+            Cell::new(format!(
+                "({:.2}, {:.2}, {:.2})",
                 dh.maximum_drawing_extents.x,
                 dh.maximum_drawing_extents.y,
-                dh.maximum_drawing_extents.z)),
-            Cell::new(format!("({:.2}, {:.2}, {:.2})",
+                dh.maximum_drawing_extents.z
+            )),
+            Cell::new(format!(
+                "({:.2}, {:.2}, {:.2})",
                 ah.model_space_extents_max.x,
                 ah.model_space_extents_max.y,
-                ah.model_space_extents_max.z)),
+                ah.model_space_extents_max.z
+            )),
         ]);
         table.add_row(vec![
             Cell::new("LIMMIN"),
-            Cell::new(format!("({:.2}, {:.2})",
-                dh.minimum_drawing_limits.x,
-                dh.minimum_drawing_limits.y)),
-            Cell::new(format!("({:.2}, {:.2})",
-                ah.model_space_limits_min.x,
-                ah.model_space_limits_min.y)),
+            Cell::new(format!(
+                "({:.2}, {:.2})",
+                dh.minimum_drawing_limits.x, dh.minimum_drawing_limits.y
+            )),
+            Cell::new(format!(
+                "({:.2}, {:.2})",
+                ah.model_space_limits_min.x, ah.model_space_limits_min.y
+            )),
         ]);
         table.add_row(vec![
             Cell::new("LIMMAX"),
-            Cell::new(format!("({:.2}, {:.2})",
-                dh.maximum_drawing_limits.x,
-                dh.maximum_drawing_limits.y)),
-            Cell::new(format!("({:.2}, {:.2})",
-                ah.model_space_limits_max.x,
-                ah.model_space_limits_max.y)),
+            Cell::new(format!(
+                "({:.2}, {:.2})",
+                dh.maximum_drawing_limits.x, dh.maximum_drawing_limits.y
+            )),
+            Cell::new(format!(
+                "({:.2}, {:.2})",
+                ah.model_space_limits_max.x, ah.model_space_limits_max.y
+            )),
         ]);
         table.add_row(vec![
             Cell::new("INSBASE"),
-            Cell::new(format!("({:.2}, {:.2}, {:.2})",
-                dh.insertion_base.x,
-                dh.insertion_base.y,
-                dh.insertion_base.z)),
-            Cell::new(format!("({:.2}, {:.2}, {:.2})",
+            Cell::new(format!(
+                "({:.2}, {:.2}, {:.2})",
+                dh.insertion_base.x, dh.insertion_base.y, dh.insertion_base.z
+            )),
+            Cell::new(format!(
+                "({:.2}, {:.2}, {:.2})",
                 ah.model_space_insertion_base.x,
                 ah.model_space_insertion_base.y,
-                ah.model_space_insertion_base.z)),
+                ah.model_space_insertion_base.z
+            )),
         ]);
         table.add_row(vec![
             Cell::new("FILLMODE"),
@@ -1549,7 +1663,10 @@ fn print_parse_detail(input_path: &Path) {
                 ]);
                 table.add_row(vec![
                     Cell::new("  DIMLFAC"),
-                    Cell::new(format!("{:.4}", dds.dimension_linear_measurement_scale_factor)),
+                    Cell::new(format!(
+                        "{:.4}",
+                        dds.dimension_linear_measurement_scale_factor
+                    )),
                     Cell::new(format!("{:.4}", ads.dimlfac)),
                 ]);
                 table.add_row(vec![
@@ -1669,7 +1786,10 @@ fn print_parse_detail(input_path: &Path) {
                 Cell::new(&db.name),
                 Cell::new(format!("{}", db.entities.len())),
                 Cell::new(a_ent),
-                Cell::new(format!("({:.2}, {:.2}, {:.2})", db.base_point.x, db.base_point.y, db.base_point.z)),
+                Cell::new(format!(
+                    "({:.2}, {:.2}, {:.2})",
+                    db.base_point.x, db.base_point.y, db.base_point.z
+                )),
                 Cell::new(if abr.is_some() { "✓" } else { "—" }),
             ]);
         }
@@ -1692,7 +1812,8 @@ fn print_parse_detail(input_path: &Path) {
 
     // --- 11. Object type breakdown ---
     {
-        let mut dxf_obj_types: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
+        let mut dxf_obj_types: std::collections::BTreeMap<String, usize> =
+            std::collections::BTreeMap::new();
         for obj in dxf_drawing.objects() {
             let name = match &obj.specific {
                 dxf::objects::ObjectType::Dictionary(_) => "Dictionary",
@@ -1720,7 +1841,8 @@ fn print_parse_detail(input_path: &Path) {
             *dxf_obj_types.entry(name.to_string()).or_insert(0) += 1;
         }
 
-        let mut acad_obj_types: std::collections::BTreeMap<String, usize> = std::collections::BTreeMap::new();
+        let mut acad_obj_types: std::collections::BTreeMap<String, usize> =
+            std::collections::BTreeMap::new();
         for (_handle, obj) in &acad_doc.objects {
             let name = match obj {
                 acadrust::objects::ObjectType::Dictionary(_) => "Dictionary",
@@ -1736,7 +1858,9 @@ fn print_parse_detail(input_path: &Path) {
                 acadrust::objects::ObjectType::PlaceHolder(_) => "PlaceHolder",
                 acadrust::objects::ObjectType::DictionaryVariable(_) => "DictionaryVariable",
                 acadrust::objects::ObjectType::ImageDefinition(_) => "ImageDefinition",
-                acadrust::objects::ObjectType::ImageDefinitionReactor(_) => "ImageDefinitionReactor",
+                acadrust::objects::ObjectType::ImageDefinitionReactor(_) => {
+                    "ImageDefinitionReactor"
+                }
                 acadrust::objects::ObjectType::Group(_) => "Group",
                 acadrust::objects::ObjectType::RasterVariables(_) => "RasterVariables",
                 acadrust::objects::ObjectType::SortEntitiesTable(_) => "SortentsTable",
@@ -1751,8 +1875,12 @@ fn print_parse_detail(input_path: &Path) {
         }
 
         let mut all_obj: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
-        for k in dxf_obj_types.keys() { all_obj.insert(k.clone()); }
-        for k in acad_obj_types.keys() { all_obj.insert(k.clone()); }
+        for k in dxf_obj_types.keys() {
+            all_obj.insert(k.clone());
+        }
+        for k in acad_obj_types.keys() {
+            all_obj.insert(k.clone());
+        }
 
         let mut table = Table::new();
         table.set_content_arrangement(ContentArrangement::Dynamic);
@@ -1795,55 +1923,105 @@ fn print_parse_detail(input_path: &Path) {
                 Cell::new(&dvp.name),
                 Cell::new("view_height"),
                 Cell::new(format!("{:.4}", dvp.view_height)),
-                Cell::new(avp.map(|v| format!("{:.4}", v.view_height)).unwrap_or("—".into())),
+                Cell::new(
+                    avp.map(|v| format!("{:.4}", v.view_height))
+                        .unwrap_or("—".into()),
+                ),
             ]);
             table.add_row(vec![
                 Cell::new(""),
                 Cell::new("view_center"),
-                Cell::new(format!("({:.2}, {:.2})", dvp.view_center.x, dvp.view_center.y)),
-                Cell::new(avp.map(|v| format!("({:.2}, {:.2})", v.view_center.x, v.view_center.y)).unwrap_or("—".into())),
+                Cell::new(format!(
+                    "({:.2}, {:.2})",
+                    dvp.view_center.x, dvp.view_center.y
+                )),
+                Cell::new(
+                    avp.map(|v| format!("({:.2}, {:.2})", v.view_center.x, v.view_center.y))
+                        .unwrap_or("—".into()),
+                ),
             ]);
             table.add_row(vec![
                 Cell::new(""),
                 Cell::new("view_direction"),
-                Cell::new(format!("({:.2}, {:.2}, {:.2})", dvp.view_direction.x, dvp.view_direction.y, dvp.view_direction.z)),
-                Cell::new(avp.map(|v| format!("({:.2}, {:.2}, {:.2})", v.view_direction.x, v.view_direction.y, v.view_direction.z)).unwrap_or("—".into())),
+                Cell::new(format!(
+                    "({:.2}, {:.2}, {:.2})",
+                    dvp.view_direction.x, dvp.view_direction.y, dvp.view_direction.z
+                )),
+                Cell::new(
+                    avp.map(|v| {
+                        format!(
+                            "({:.2}, {:.2}, {:.2})",
+                            v.view_direction.x, v.view_direction.y, v.view_direction.z
+                        )
+                    })
+                    .unwrap_or("—".into()),
+                ),
             ]);
             table.add_row(vec![
                 Cell::new(""),
                 Cell::new("lens_length"),
                 Cell::new(format!("{:.4}", dvp.lens_length)),
-                Cell::new(avp.map(|v| format!("{:.4}", v.lens_length)).unwrap_or("—".into())),
+                Cell::new(
+                    avp.map(|v| format!("{:.4}", v.lens_length))
+                        .unwrap_or("—".into()),
+                ),
             ]);
             table.add_row(vec![
                 Cell::new(""),
                 Cell::new("aspect_ratio"),
                 Cell::new(format!("{:.4}", dvp.view_port_aspect_ratio)),
-                Cell::new(avp.map(|v| format!("{:.4}", v.aspect_ratio)).unwrap_or("—".into())),
+                Cell::new(
+                    avp.map(|v| format!("{:.4}", v.aspect_ratio))
+                        .unwrap_or("—".into()),
+                ),
             ]);
             table.add_row(vec![
                 Cell::new(""),
                 Cell::new("lower_left"),
-                Cell::new(format!("({:.2}, {:.2})", dvp.lower_left.x, dvp.lower_left.y)),
-                Cell::new(avp.map(|v| format!("({:.2}, {:.2})", v.lower_left.x, v.lower_left.y)).unwrap_or("—".into())),
+                Cell::new(format!(
+                    "({:.2}, {:.2})",
+                    dvp.lower_left.x, dvp.lower_left.y
+                )),
+                Cell::new(
+                    avp.map(|v| format!("({:.2}, {:.2})", v.lower_left.x, v.lower_left.y))
+                        .unwrap_or("—".into()),
+                ),
             ]);
             table.add_row(vec![
                 Cell::new(""),
                 Cell::new("upper_right"),
-                Cell::new(format!("({:.2}, {:.2})", dvp.upper_right.x, dvp.upper_right.y)),
-                Cell::new(avp.map(|v| format!("({:.2}, {:.2})", v.upper_right.x, v.upper_right.y)).unwrap_or("—".into())),
+                Cell::new(format!(
+                    "({:.2}, {:.2})",
+                    dvp.upper_right.x, dvp.upper_right.y
+                )),
+                Cell::new(
+                    avp.map(|v| format!("({:.2}, {:.2})", v.upper_right.x, v.upper_right.y))
+                        .unwrap_or("—".into()),
+                ),
             ]);
             table.add_row(vec![
                 Cell::new(""),
                 Cell::new("grid_spacing"),
-                Cell::new(format!("({:.2}, {:.2})", dvp.grid_spacing.x, dvp.grid_spacing.y)),
-                Cell::new(avp.map(|v| format!("({:.2}, {:.2})", v.grid_spacing.x, v.grid_spacing.y)).unwrap_or("—".into())),
+                Cell::new(format!(
+                    "({:.2}, {:.2})",
+                    dvp.grid_spacing.x, dvp.grid_spacing.y
+                )),
+                Cell::new(
+                    avp.map(|v| format!("({:.2}, {:.2})", v.grid_spacing.x, v.grid_spacing.y))
+                        .unwrap_or("—".into()),
+                ),
             ]);
             table.add_row(vec![
                 Cell::new(""),
                 Cell::new("snap_spacing"),
-                Cell::new(format!("({:.2}, {:.2})", dvp.snap_spacing.x, dvp.snap_spacing.y)),
-                Cell::new(avp.map(|v| format!("({:.2}, {:.2})", v.snap_spacing.x, v.snap_spacing.y)).unwrap_or("—".into())),
+                Cell::new(format!(
+                    "({:.2}, {:.2})",
+                    dvp.snap_spacing.x, dvp.snap_spacing.y
+                )),
+                Cell::new(
+                    avp.map(|v| format!("({:.2}, {:.2})", v.snap_spacing.x, v.snap_spacing.y))
+                        .unwrap_or("—".into()),
+                ),
             ]);
         }
 
@@ -1865,17 +2043,25 @@ fn print_parse_detail(input_path: &Path) {
         let acad_appids: Vec<_> = acad_doc.app_ids.iter().map(|a| a.name.clone()).collect();
 
         let mut all_names: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
-        for n in &dxf_appids { all_names.insert(n.clone()); }
-        for n in &acad_appids { all_names.insert(n.clone()); }
+        for n in &dxf_appids {
+            all_names.insert(n.clone());
+        }
+        for n in &acad_appids {
+            all_names.insert(n.clone());
+        }
 
         for name in &all_names {
-            let in_dxf = if dxf_appids.contains(name) { "✓" } else { "—" };
-            let in_acad = if acad_appids.contains(name) { "✓" } else { "—" };
-            table.add_row(vec![
-                Cell::new(name),
-                Cell::new(in_dxf),
-                Cell::new(in_acad),
-            ]);
+            let in_dxf = if dxf_appids.contains(name) {
+                "✓"
+            } else {
+                "—"
+            };
+            let in_acad = if acad_appids.contains(name) {
+                "✓"
+            } else {
+                "—"
+            };
+            table.add_row(vec![Cell::new(name), Cell::new(in_dxf), Cell::new(in_acad)]);
         }
 
         println!("AppIds:\n{}\n", table);
@@ -1892,15 +2078,23 @@ fn print_parse_detail(input_path: &Path) {
             Cell::new("acadrust"),
         ]);
 
-        let dxf_texts: Vec<_> = dxf_drawing.entities().filter_map(|e| match &e.specific {
-            dxf::entities::EntityType::Text(t) => Some((t.clone(), e.common.layer.clone())),
-            _ => None,
-        }).take(3).collect();
+        let dxf_texts: Vec<_> = dxf_drawing
+            .entities()
+            .filter_map(|e| match &e.specific {
+                dxf::entities::EntityType::Text(t) => Some((t.clone(), e.common.layer.clone())),
+                _ => None,
+            })
+            .take(3)
+            .collect();
 
-        let acad_texts: Vec<_> = acad_doc.entities().filter_map(|e| match e {
-            acadrust::entities::EntityType::Text(t) => Some(t),
-            _ => None,
-        }).take(3).collect();
+        let acad_texts: Vec<_> = acad_doc
+            .entities()
+            .filter_map(|e| match e {
+                acadrust::entities::EntityType::Text(t) => Some(t),
+                _ => None,
+            })
+            .take(3)
+            .collect();
 
         for (i, ((dt, dl), at)) in dxf_texts.iter().zip(acad_texts.iter()).enumerate() {
             let label = format!("TEXT #{}", i + 1);
@@ -1913,8 +2107,14 @@ fn print_parse_detail(input_path: &Path) {
             table.add_row(vec![
                 Cell::new(""),
                 Cell::new("location"),
-                Cell::new(format!("({:.2}, {:.2}, {:.2})", dt.location.x, dt.location.y, dt.location.z)),
-                Cell::new(format!("({:.2}, {:.2}, {:.2})", at.insertion_point.x, at.insertion_point.y, at.insertion_point.z)),
+                Cell::new(format!(
+                    "({:.2}, {:.2}, {:.2})",
+                    dt.location.x, dt.location.y, dt.location.z
+                )),
+                Cell::new(format!(
+                    "({:.2}, {:.2}, {:.2})",
+                    at.insertion_point.x, at.insertion_point.y, at.insertion_point.z
+                )),
             ]);
             table.add_row(vec![
                 Cell::new(""),
@@ -1943,15 +2143,23 @@ fn print_parse_detail(input_path: &Path) {
         }
 
         // MText spot-check
-        let dxf_mtexts: Vec<_> = dxf_drawing.entities().filter_map(|e| match &e.specific {
-            dxf::entities::EntityType::MText(t) => Some((t.clone(), e.common.layer.clone())),
-            _ => None,
-        }).take(3).collect();
+        let dxf_mtexts: Vec<_> = dxf_drawing
+            .entities()
+            .filter_map(|e| match &e.specific {
+                dxf::entities::EntityType::MText(t) => Some((t.clone(), e.common.layer.clone())),
+                _ => None,
+            })
+            .take(3)
+            .collect();
 
-        let acad_mtexts: Vec<_> = acad_doc.entities().filter_map(|e| match e {
-            acadrust::entities::EntityType::MText(t) => Some(t),
-            _ => None,
-        }).take(3).collect();
+        let acad_mtexts: Vec<_> = acad_doc
+            .entities()
+            .filter_map(|e| match e {
+                acadrust::entities::EntityType::MText(t) => Some(t),
+                _ => None,
+            })
+            .take(3)
+            .collect();
 
         for (i, ((dm, dl), am)) in dxf_mtexts.iter().zip(acad_mtexts.iter()).enumerate() {
             let label = format!("MTEXT #{}", i + 1);
@@ -1969,8 +2177,14 @@ fn print_parse_detail(input_path: &Path) {
             table.add_row(vec![
                 Cell::new(""),
                 Cell::new("insertion_point"),
-                Cell::new(format!("({:.2}, {:.2}, {:.2})", dm.insertion_point.x, dm.insertion_point.y, dm.insertion_point.z)),
-                Cell::new(format!("({:.2}, {:.2}, {:.2})", am.insertion_point.x, am.insertion_point.y, am.insertion_point.z)),
+                Cell::new(format!(
+                    "({:.2}, {:.2}, {:.2})",
+                    dm.insertion_point.x, dm.insertion_point.y, dm.insertion_point.z
+                )),
+                Cell::new(format!(
+                    "({:.2}, {:.2}, {:.2})",
+                    am.insertion_point.x, am.insertion_point.y, am.insertion_point.z
+                )),
             ]);
             table.add_row(vec![
                 Cell::new(""),
@@ -2052,11 +2266,31 @@ fn print_parse_detail(input_path: &Path) {
 
         // Table control handles
         let mut dxf_table_handles = 0usize;
-        for l in dxf_drawing.layers() { if l.handle.0 != 0 { dxf_table_handles += 1; } }
-        for lt in dxf_drawing.line_types() { if lt.handle.0 != 0 { dxf_table_handles += 1; } }
-        for s in dxf_drawing.styles() { if s.handle.0 != 0 { dxf_table_handles += 1; } }
-        for ds in dxf_drawing.dim_styles() { if ds.handle.0 != 0 { dxf_table_handles += 1; } }
-        for a in dxf_drawing.app_ids() { if a.handle.0 != 0 { dxf_table_handles += 1; } }
+        for l in dxf_drawing.layers() {
+            if l.handle.0 != 0 {
+                dxf_table_handles += 1;
+            }
+        }
+        for lt in dxf_drawing.line_types() {
+            if lt.handle.0 != 0 {
+                dxf_table_handles += 1;
+            }
+        }
+        for s in dxf_drawing.styles() {
+            if s.handle.0 != 0 {
+                dxf_table_handles += 1;
+            }
+        }
+        for ds in dxf_drawing.dim_styles() {
+            if ds.handle.0 != 0 {
+                dxf_table_handles += 1;
+            }
+        }
+        for a in dxf_drawing.app_ids() {
+            if a.handle.0 != 0 {
+                dxf_table_handles += 1;
+            }
+        }
 
         let acad_table_handles = acad_doc.layers.len()
             + acad_doc.line_types.len()

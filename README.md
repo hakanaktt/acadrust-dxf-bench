@@ -35,8 +35,14 @@ Benchmark suite comparing four DXF/DWG libraries across parsing, writing, roundt
 ## Quick Start
 
 ```bash
+# Native GUI: choose a preset or add your own DXF/DXB/DWG files
+cargo run --release -- --gui
+
 # Quick comparison table (CLI runner)
 cargo run --release -- --scale large --iterations 10
+
+# Benchmark user files (repeat --input for multiple files)
+cargo run --release -- --input drawing.dxf --input model.dwg --iterations 10
 
 # Full Criterion benchmarks
 cargo bench
@@ -46,6 +52,31 @@ cargo bench --bench parse_bench
 cargo bench --bench write_bench
 cargo bench --bench roundtrip_bench
 ```
+
+The GUI has a file picker for `.dxf`, binary `.dxb`, and `.dwg` files. It runs
+the selected preset when no custom files are selected, or benchmarks each
+selected file when custom files are present. Each run automatically writes a
+Markdown report and a JSON sidecar. Preset reports are written below
+`bench_output/<scale>/report.md`; custom reports are written below
+`bench_output/custom/report.md`.
+
+The CLI accepts the same custom-file inputs and also supports
+`--report path/to/report.md` to choose the Markdown report location. The JSON
+report is written next to it with the same filename and a `.json` extension.
+
+### Windows Package
+
+Build a portable GUI package with the ACadSharp and ezdxf runners embedded as
+adjacent executables:
+
+```powershell
+.\scripts\package-windows.ps1
+```
+
+The package is written to `dist/acadrust-dxf-bench/`. Keep
+`acadrust-dxf-bench.exe`, `acadsharp-bench.exe`, and `ezdxf-bench.exe` together.
+The GUI prefers those bundled runners and does not require a system Python,
+`ezdxf` installation, or .NET SDK.
 
 ## Architecture
 
